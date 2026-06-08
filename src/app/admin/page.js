@@ -8,6 +8,25 @@ const ETHNICITY_OPTIONS = ["Any", "White", "South Asian", "East Asian", "Southea
 const PROFESSION_OPTIONS = ["Any", "Healthcare", "Medical", "Technology", "Finance", "Legal", "Education", "Retail / Service", "Trades / Construction", "Executive", "Student", "Retired"];
 const INTERVIEW_TYPES = ["Open-ended", "Semi-structured", "Structured survey"];
 
+// ── Quota sampling: dimensions a quota group can constrain on ──
+const QUOTA_DIMENSIONS = [
+  { key: "ageRange", label: "Age", options: AGE_OPTIONS },
+  { key: "gender", label: "Gender", options: ["Male", "Female", "Non-binary"] },
+  { key: "ethnicity", label: "Ethnicity", options: ETHNICITY_OPTIONS.filter((o) => o !== "Any") },
+  { key: "profession", label: "Profession", options: PROFESSION_OPTIONS.filter((o) => o !== "Any") },
+];
+
+// Stable unique id for each quota group (used later to count completed interviews per group)
+function makeCellId() {
+  return "cell_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// Human-readable label built from whichever dimensions are constrained
+function cellLabel(constraints) {
+  const parts = QUOTA_DIMENSIONS.map((d) => constraints[d.key]).filter(Boolean);
+  return parts.length ? parts.join(" · ") : "Anyone";
+}
+
 function LiveMap({ interviewers }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -88,6 +107,7 @@ export default function AdminDashboard() {
     ethnicities: ["Any"],
     professions: ["Any"],
     interviewee_demographics: [],
+    quotas: [],
     questions: [{ question: "", type: "opener", follow_ups: [""] }],
     objective: "",
     tips: [""],
@@ -137,9 +157,47 @@ export default function AdminDashboard() {
     if (data) setInterviewers(data);
   }
 
+  // ── Quota group handlers ──
+  function addQuotaCell() {
+    setForm((f) => ({
+      ...f,
+      quotas: [...f.quotas, { id: makeCellId(), constraints: { ageRange: null, gender: null, ethnicity: null, profession: null }, target: 10 }],
+    }));
+  }
+  function updateQuotaConstraint(cellId, key, value) {
+    setForm((f) => ({
+      ...f,
+      quotas: f.quotas.map((c) => (c.id === cellId ? { ...c, constraints: { ...c.constraints, [key]: value || null } } : c)),
+    }));
+  }
+  function updateQuotaTarget(cellId, value) {
+    setForm((f) => ({
+      ...f,
+      quotas: f.quotas.map((c) => (c.id === cellId ? { ...c, target: value } : c)),
+    }));
+  }
+  function removeQuotaCell(cellId) {
+    setForm((f) => ({ ...f, quotas: f.quotas.filter((c) => c.id !== cellId) }));
+  }
+
   async function createContract() {
     setSaving(true);
     setSaveMessage("");
+
+    // Clean quota groups: strip empty dimensions, attach a readable label, drop zero-target groups
+    const cleanedQuotas = form.quotas
+      .map((cell) => {
+        const constraints = {};
+        QUOTA_DIMENSIONS.forEach((d) => {
+          if (cell.constraints[d.key]) constraints[d.key] = cell.constraints[d.key];
+        });
+        return { id: cell.id, label: cellLabel(cell.constraints), constraints, target: parseInt(cell.target) || 0 };
+      })
+      .filter((cell) => cell.target > 0);
+
+    // If quotas are used, the contract total is the sum of group targets; otherwise the manual number
+    const totalFromQuotas = cleanedQuotas.reduce((sum, c) => sum + c.target, 0);
+    const effectiveTotal = cleanedQuotas.length > 0 ? totalFromQuotas : form.interviews_total;
 
     const contractData = {
       client: form.client,
@@ -148,8 +206,8 @@ export default function AdminDashboard() {
       estimated_minutes: form.estimated_minutes,
       interviewer_payout: form.interviewer_payout,
       interviewee_incentive: form.interviewee_incentive,
-      interviews_total: form.interviews_total,
-      interviews_remaining: form.interviews_total,
+      interviews_total: effectiveTotal,
+      interviews_remaining: effectiveTotal,
       demographics: {
         ageRanges: form.age_ranges.length > 0 ? form.age_ranges : ["Any"],
         genders: form.genders,
@@ -157,6 +215,7 @@ export default function AdminDashboard() {
         professions: form.professions,
       },
       interviewee_demographics: form.interviewee_demographics,
+      quotas: cleanedQuotas,
       guide: {
         objective: form.objective,
         questions: form.questions.filter((q) => q.question.trim() !== ""),
@@ -174,7 +233,7 @@ export default function AdminDashboard() {
         client: "", topic: "", type: "Open-ended", estimated_minutes: 20,
         interviewer_payout: 50, interviewee_incentive: 35, interviews_total: 30,
         age_ranges: [], genders: ["Any"], ethnicities: ["Any"], professions: ["Any"],
-        interviewee_demographics: [], questions: [{ question: "", type: "opener", follow_ups: [""] }],
+        interviewee_demographics: [], quotas: [], questions: [{ question: "", type: "opener", follow_ups: [""] }],
         objective: "", tips: [""],
       });
       setTab("contracts");
@@ -192,6 +251,10 @@ export default function AdminDashboard() {
   const F = "var(--font-sans)";
   const inputStyle = { width: "100%", padding: "12px 14px", borderRadius: "10px", border: "1px solid #3A3A38", background: "#1A1A18", color: "#E8E8E4", fontSize: "14px", fontFamily: F, boxSizing: "border-box", outline: "none" };
   const labelStyle = { fontSize: "12px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", display: "block", marginBottom: "6px", fontFamily: F };
+
+  // Derived quota values for the form display
+  const usingQuotas = form.quotas.length > 0;
+  const quotaTotal = form.quotas.reduce((sum, c) => sum + (parseInt(c.target) || 0), 0);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0E0E0C", fontFamily: F }}>
@@ -256,6 +319,9 @@ export default function AdminDashboard() {
                         <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", background: "#2A2A28", color: "#A8A8A4" }}>{c.type}</span>
                         <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", background: "#2A2A28", color: "#A8A8A4" }}>~{c.estimated_minutes} min</span>
                         <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", background: "#2A2A28", color: "#A8A8A4" }}>Interviewee: ${c.interviewee_incentive}</span>
+                        {Array.isArray(c.quotas) && c.quotas.length > 0 && (
+                          <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "6px", background: "#1A2A20", color: "#6EC4A7" }}>{c.quotas.length} quota groups</span>
+                        )}
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
                         <span style={{ fontSize: "11px", color: "#888880" }}>Progress</span>
@@ -312,7 +378,13 @@ export default function AdminDashboard() {
               </div>
               <div>
                 <label style={labelStyle}>Total interviews needed</label>
-                <input type="number" style={inputStyle} value={form.interviews_total} onChange={(e) => setForm({ ...form, interviews_total: parseInt(e.target.value) || 0 })} />
+                {usingQuotas ? (
+                  <div style={{ ...inputStyle, display: "flex", alignItems: "center", color: "#6EC4A7", background: "#141816", cursor: "not-allowed" }}>
+                    {quotaTotal} (from quotas)
+                  </div>
+                ) : (
+                  <input type="number" style={inputStyle} value={form.interviews_total} onChange={(e) => setForm({ ...form, interviews_total: parseInt(e.target.value) || 0 })} />
+                )}
               </div>
             </div>
 
@@ -361,6 +433,47 @@ export default function AdminDashboard() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Quota targets */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={labelStyle}>Quota targets (optional)</label>
+              <p style={{ fontSize: "12px", color: "#888880", lineHeight: "1.5", margin: "0 0 12px" }}>
+                Set how many interviews you need from each group. Add a group, choose the demographics that define it (leave a field on "Any" to not constrain it), and set a target. Leave this empty to just use one overall total.
+              </p>
+
+              {form.quotas.map((cell) => (
+                <div key={cell.id} style={{ background: "#1A1A18", border: "1px solid #2A2A28", borderRadius: "12px", padding: "14px", marginBottom: "8px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+                    {QUOTA_DIMENSIONS.map((d) => (
+                      <div key={d.key}>
+                        <div style={{ fontSize: "11px", color: "#888880", marginBottom: "4px" }}>{d.label}</div>
+                        <select style={{ ...inputStyle, cursor: "pointer", fontSize: "13px" }} value={cell.constraints[d.key] || ""} onChange={(e) => updateQuotaConstraint(cell.id, d.key, e.target.value)}>
+                          <option value="">Any</option>
+                          {d.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ fontSize: "13px", color: "#888880" }}>Target</span>
+                      <input type="number" min="1" style={{ ...inputStyle, width: "90px", fontSize: "13px" }} value={cell.target} onChange={(e) => updateQuotaTarget(cell.id, e.target.value)} />
+                      <span style={{ fontSize: "13px", color: "#A8A8A4" }}>interviews</span>
+                    </div>
+                    <button onClick={() => removeQuotaCell(cell.id)} style={{ fontSize: "12px", color: "#E06050", background: "none", border: "none", cursor: "pointer", fontFamily: F }}>Remove</button>
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#6EC4A7", marginTop: "10px", fontWeight: "500" }}>{cellLabel(cell.constraints)}</div>
+                </div>
+              ))}
+
+              <button onClick={addQuotaCell} style={{ padding: "10px 16px", borderRadius: "10px", border: "1px dashed #3A3A38", background: "none", color: "#888880", fontSize: "13px", cursor: "pointer", fontFamily: F, width: "100%" }}>+ Add quota group</button>
+
+              {usingQuotas && (
+                <div style={{ marginTop: "10px", padding: "10px 14px", borderRadius: "10px", background: "#1A2A20", color: "#6EC4A7", fontSize: "13px" }}>
+                  Total across all quota groups: <strong>{quotaTotal}</strong> interviews — this sets the contract's total automatically.
+                </div>
+              )}
             </div>
 
             {/* Research objective */}
