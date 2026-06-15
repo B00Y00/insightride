@@ -12,6 +12,7 @@ const BUCKET = "interview-videos";
 
 const label = { fontSize: "12px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", display: "block", marginBottom: "6px" };
 const input = { width: "100%", padding: "12px 14px", borderRadius: "10px", border: "1px solid #3A3A38", background: "#1A1A18", color: "#E8E8E4", fontSize: "14px", fontFamily: F, boxSizing: "border-box", outline: "none" };
+const STATUS_COLORS = { uploaded: "#A8A8A4", transcribing: "#D4A017", transcribed: "#6EC4A7", summarized: "#6EC4A7", failed: "#E06050" };
 
 export default function UploadInterviewPage() {
   const [contracts, setContracts] = useState([]);
@@ -23,10 +24,29 @@ export default function UploadInterviewPage() {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
+  const [interviews, setInterviews] = useState([]);
+  const [expanded, setExpanded] = useState(null);
 
   useEffect(() => {
     supabase.from("contracts").select("id, client, topic").order("created_at", { ascending: false }).then(({ data }) => { if (data) setContracts(data); });
   }, []);
+
+  async function loadInterviews(cid) {
+    if (!cid) { setInterviews([]); return; }
+    const { data } = await supabase
+      .from("completed_interviews")
+      .select("id, interview_number, status, transcript")
+      .eq("contract_id", cid)
+      .order("interview_number", { ascending: true });
+    if (data) setInterviews(data);
+  }
+
+  useEffect(() => {
+    loadInterviews(contractId);
+    if (!contractId) return;
+    const timer = setInterval(() => loadInterviews(contractId), 5000);
+    return () => clearInterval(timer);
+  }, [contractId]);
 
   function useMyLocation() {
     if (!navigator.geolocation) { setMessage({ type: "error", text: "This device can't provide a location." }); return; }
@@ -43,11 +63,8 @@ export default function UploadInterviewPage() {
     setBusy(true);
     try {
       const { data: existing, error: countErr } = await supabase
-        .from("completed_interviews")
-        .select("interview_number")
-        .eq("contract_id", contractId)
-        .order("interview_number", { ascending: false })
-        .limit(1);
+        .from("completed_interviews").select("interview_number")
+        .eq("contract_id", contractId).order("interview_number", { ascending: false }).limit(1);
       if (countErr) throw countErr;
       const nextNumber = ((existing && existing[0] && existing[0].interview_number) || 0) + 1;
 
@@ -57,14 +74,10 @@ export default function UploadInterviewPage() {
       if (uploadErr) throw uploadErr;
 
       const row = {
-        contract_id: contractId,
-        interview_number: nextNumber,
-        interviewer_name: interviewerName || null,
-        demographics: demo,
-        latitude: lat ? parseFloat(lat) : null,
-        longitude: lng ? parseFloat(lng) : null,
-        video_url: path,
-        status: "uploaded",
+        contract_id: contractId, interview_number: nextNumber,
+        interviewer_name: interviewerName || null, demographics: demo,
+        latitude: lat ? parseFloat(lat) : null, longitude: lng ? parseFloat(lng) : null,
+        video_url: path, status: "uploaded",
       };
       const { error: insertErr } = await supabase.from("completed_interviews").insert([row]);
       if (insertErr) throw insertErr;
@@ -73,10 +86,28 @@ export default function UploadInterviewPage() {
       setFile(null); setInterviewerName(""); setDemo({ ageRange: "", gender: "", ethnicity: "", profession: "" }); setLat(""); setLng("");
       const el = document.getElementById("video-file-input");
       if (el) el.value = "";
+      loadInterviews(contractId);
     } catch (e) {
       setMessage({ type: "error", text: "Something went wrong: " + (e.message || String(e)) });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function transcribe(interviewId) {
+    setMessage(null);
+    setInterviews((list) => list.map((i) => i.id === interviewId ? { ...i, status: "transcribing" } : i));
+    try {
+      const res = await fetch("/api/transcribe", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ interviewId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to start transcription");
+    } catch (e) {
+      setMessage({ type: "error", text: "Couldn't start transcription: " + (e.message || String(e)) });
+    } finally {
+      loadInterviews(contractId);
     }
   }
 
@@ -136,6 +167,41 @@ export default function UploadInterviewPage() {
         <button onClick={handleUpload} disabled={busy} style={{ width: "100%", padding: "16px", borderRadius: "12px", border: "none", background: busy ? "#3A3A38" : "#D4A017", color: busy ? "#888880" : "#0E0E0C", fontSize: "16px", fontWeight: "700", cursor: busy ? "not-allowed" : "pointer", fontFamily: F }}>
           {busy ? "Uploading…" : "Upload interview"}
         </button>
+
+        {contractId && (
+          <div style={{ marginTop: "32px" }}>
+            <div style={{ fontSize: "12px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "12px" }}>Interviews in this contract</div>
+            {interviews.length === 0 ? (
+              <div style={{ fontSize: "13px", color: "#888880" }}>No interviews uploaded yet.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {interviews.map((iv) => (
+                  <div key={iv.id} style={{ background: "#1A1A18", border: "1px solid #2A2A28", borderRadius: "10px", padding: "12px 14px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ fontSize: "14px", color: "#E8E8E4", fontWeight: "500" }}>Interview #{iv.interview_number}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "600", color: STATUS_COLORS[iv.status] || "#A8A8A4", textTransform: "capitalize" }}>{iv.status || "uploaded"}</span>
+                        {(iv.status === "uploaded" || iv.status === "failed") && (
+                          <button onClick={() => transcribe(iv.id)} style={{ padding: "6px 12px", borderRadius: "8px", border: "none", background: "#D4A017", color: "#0E0E0C", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: F }}>
+                            {iv.status === "failed" ? "Retry" : "Transcribe"}
+                          </button>
+                        )}
+                        {(iv.status === "transcribed" || iv.status === "summarized") && iv.transcript && (
+                          <button onClick={() => setExpanded(expanded === iv.id ? null : iv.id)} style={{ padding: "6px 12px", borderRadius: "8px", border: "1px solid #3A3A38", background: "#1E1E1C", color: "#A8A8A4", fontSize: "12px", cursor: "pointer", fontFamily: F }}>
+                            {expanded === iv.id ? "Hide" : "View transcript"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {expanded === iv.id && iv.transcript && (
+                      <div style={{ marginTop: "10px", padding: "12px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#C8C8C4", lineHeight: "1.6", maxHeight: "260px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{iv.transcript}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
