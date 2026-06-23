@@ -32,11 +32,14 @@ export default function UploadInterviewPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
   const [interviews, setInterviews] = useState([]);
-  const [panel, setPanel] = useState(null); // { id, kind: 'transcript' | 'analysis' }
+  const [panel, setPanel] = useState(null);
   const [processingId, setProcessingId] = useState(null);
+  const [report, setReport] = useState(null);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [showReport, setShowReport] = useState(false);
 
   useEffect(() => {
-    supabase.from("contracts").select("id, client, topic").order("created_at", { ascending: false }).then(({ data }) => { if (data) setContracts(data); });
+    supabase.from("contracts").select("id, client, topic, report_threshold").order("created_at", { ascending: false }).then(({ data }) => { if (data) setContracts(data); });
   }, []);
 
   async function loadInterviews(cid) {
@@ -48,8 +51,16 @@ export default function UploadInterviewPage() {
     if (data) setInterviews(data);
   }
 
+  async function loadReport(cid) {
+    if (!cid) { setReport(null); return; }
+    const { data } = await supabase.from("reports").select("*").eq("contract_id", cid).order("generated_at", { ascending: false }).limit(1);
+    setReport(data && data[0] ? data[0] : null);
+  }
+
   useEffect(() => {
     loadInterviews(contractId);
+    loadReport(contractId);
+    setShowReport(false);
     if (!contractId) return;
     const timer = setInterval(() => loadInterviews(contractId), 5000);
     return () => clearInterval(timer);
@@ -116,15 +127,30 @@ export default function UploadInterviewPage() {
     } finally { setProcessingId(null); loadInterviews(contractId); }
   }
 
+  async function generateReport() {
+    setMessage(null); setReportBusy(true);
+    try {
+      const res = await fetch("/api/generate-report", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ contractId }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to generate report");
+      setReport(data.report); setShowReport(true);
+    } catch (e) {
+      setMessage({ type: "error", text: "Report generation failed: " + (e.message || String(e)) });
+    } finally { setReportBusy(false); }
+  }
+
   function toggle(id, kind) { setPanel((p) => (p && p.id === id && p.kind === kind) ? null : { id, kind }); }
 
   const demoFields = [["ageRange", "Age range", AGE_OPTIONS], ["gender", "Gender", GENDER_OPTIONS], ["ethnicity", "Ethnicity", ETHNICITY_OPTIONS], ["profession", "Profession", PROFESSION_OPTIONS]];
+  const selectedContract = contracts.find((c) => c.id === contractId);
+  const threshold = selectedContract?.report_threshold || 0;
+  const summarizedCount = interviews.filter((i) => i.status === "summarized").length;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0E0E0C", fontFamily: F, paddingBottom: "60px" }}>
       <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #1A1A18" }}>
         <a href="/admin" style={{ fontSize: "13px", color: "#D4A017", textDecoration: "none" }}>← Back to admin</a>
-        <div style={{ fontSize: "22px", fontWeight: "700", color: "#E8E8E4", marginTop: "6px" }}>Upload an interview</div>
+        <div style={{ fontSize: "22px", fontWeight: "700", color: "#E8E8E4", marginTop: "6px" }}>Upload & process interviews</div>
       </div>
 
       <div style={{ padding: "20px 24px", maxWidth: "640px" }}>
@@ -193,11 +219,9 @@ export default function UploadInterviewPage() {
                           {iv.status === "summarized" && sd && (<button onClick={() => toggle(iv.id, "analysis")} style={smallBtn("#1E1E1C", "#6EC4A7", "1px solid #2A3A2E")}>{panel && panel.id === iv.id && panel.kind === "analysis" ? "Hide" : "Analysis"}</button>)}
                         </div>
                       </div>
-
                       {panel && panel.id === iv.id && panel.kind === "transcript" && iv.transcript && (
                         <div style={{ marginTop: "10px", padding: "12px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#C8C8C4", lineHeight: "1.6", maxHeight: "260px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{iv.transcript}</div>
                       )}
-
                       {panel && panel.id === iv.id && panel.kind === "analysis" && sd && (
                         <div style={{ marginTop: "10px", padding: "14px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#C8C8C4", lineHeight: "1.6" }}>
                           <div style={{ marginBottom: "10px" }}><span style={{ color: "#888880" }}>Summary:</span> {sd.summary}</div>
@@ -208,9 +232,7 @@ export default function UploadInterviewPage() {
                             <div style={{ marginTop: "12px", borderTop: "1px solid #2A2A28", paddingTop: "10px" }}>
                               <div style={{ color: "#888880", textTransform: "uppercase", fontSize: "11px", letterSpacing: "0.05em", marginBottom: "6px" }}>Extracted fields</div>
                               {Object.entries(sd.extracted_fields).map(([k, f]) => (
-                                <div key={k} style={{ marginBottom: "4px" }}>
-                                  <span style={{ color: "#6EC4A7" }}>{k}:</span> {f && f.mentioned ? fmtValue(f.value) : "not mentioned"}{f && f.mentioned && f.confidence ? ` (${f.confidence})` : ""}
-                                </div>
+                                <div key={k} style={{ marginBottom: "4px" }}><span style={{ color: "#6EC4A7" }}>{k}:</span> {f && f.mentioned ? fmtValue(f.value) : "not mentioned"}{f && f.mentioned && f.confidence ? ` (${f.confidence})` : ""}</div>
                               ))}
                             </div>
                           )}
@@ -221,6 +243,24 @@ export default function UploadInterviewPage() {
                 })}
               </div>
             )}
+
+            {/* Report section */}
+            <div style={{ marginTop: "28px", background: "#141414", border: "1px solid #2A2A28", borderRadius: "12px", padding: "16px" }}>
+              <div style={{ fontSize: "12px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "10px" }}>Contract report</div>
+              <div style={{ fontSize: "13px", color: "#A8A8A4", marginBottom: "12px" }}>
+                {summarizedCount} of {threshold} interviews analysed{summarizedCount >= threshold && threshold > 0 ? " — threshold reached." : threshold > 0 ? ` (you can still generate now for testing).` : "."}
+              </div>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                <button onClick={generateReport} disabled={reportBusy || summarizedCount === 0} style={{ padding: "12px 18px", borderRadius: "10px", border: "none", background: reportBusy || summarizedCount === 0 ? "#3A3A38" : "#D4A017", color: reportBusy || summarizedCount === 0 ? "#888880" : "#0E0E0C", fontSize: "14px", fontWeight: "700", cursor: reportBusy || summarizedCount === 0 ? "not-allowed" : "pointer", fontFamily: F }}>
+                  {reportBusy ? "Generating… (up to a minute)" : report ? "Regenerate report" : "Generate report"}
+                </button>
+                {report && (<button onClick={() => setShowReport(!showReport)} style={smallBtn("#1E1E1C", "#6EC4A7", "1px solid #2A3A2E")}>{showReport ? "Hide report" : "View report"}</button>)}
+              </div>
+              {report && (<div style={{ fontSize: "11px", color: "#888880", marginTop: "8px" }}>Last generated {new Date(report.generated_at).toLocaleString()} · {report.interviews_included} interviews included</div>)}
+              {report && showReport && (
+                <div style={{ marginTop: "14px", padding: "16px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#D8D8D4", lineHeight: "1.7", maxHeight: "500px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{report.content}</div>
+              )}
+            </div>
           </div>
         )}
       </div>
