@@ -8,29 +8,33 @@ const serif = "'Young Serif', Georgia, serif";
 const sans = "'Outfit', sans-serif";
 const mono = "'IBM Plex Mono', ui-monospace, monospace";
 
-const TRANSCRIPT = [
-  ["SPEAKER A", "00:41", 72], ["SPEAKER B", "00:52", 100], ["SPEAKER B", "01:18", 88],
-  ["SPEAKER A", "01:31", 55], ["SPEAKER B", "01:44", 96], ["SPEAKER B", "02:20", 64],
-  ["SPEAKER A", "02:37", 78], ["SPEAKER B", "02:51", 91],
-];
+function youtubeEmbed(url) {
+  if (!url) return null;
+  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/);
+  return m ? `https://www.youtube.com/embed/${m[1]}` : null;
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newPass, setNewPass] = useState("");
   const [newPass2, setNewPass2] = useState("");
-  const [stage, setStage] = useState("signin"); // signin | newpass
+  const [stage, setStage] = useState("signin");
   const [pendingRole, setPendingRole] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sections, setSections] = useState([]);
   const [openSection, setOpenSection] = useState(null);
+  const [updates, setUpdates] = useState([]);
 
   useEffect(() => {
     supabase.from("site_content").select("*").then(({ data }) => {
       const order = ["terms_of_use", "cookie_policy", "faq", "customer_service"];
       if (data) setSections(order.map((k) => data.find((d) => d.key === k)).filter(Boolean));
     });
+    supabase.from("site_updates").select("*").eq("published", true)
+      .order("created_at", { ascending: false }).limit(12)
+      .then(({ data }) => { if (data) setUpdates(data); });
   }, []);
 
   function redirectByRole(role) {
@@ -74,28 +78,40 @@ export default function LoginPage() {
       <link href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
       <div style={{ flex: 1, display: "flex", flexWrap: "wrap" }}>
-        {/* Left: transcript motif */}
-        <div style={{ flex: "1 1 380px", background: ink, color: porcelain, padding: "48px 44px", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: "320px" }}>
-          <div>
-            <div style={{ fontFamily: serif, fontSize: "30px", letterSpacing: "0.01em" }}>InsightRide</div>
-            <div style={{ fontFamily: mono, fontSize: "11px", color: "#7FA893", marginTop: "6px", letterSpacing: "0.08em" }}>IN-PERSON RESEARCH · RECORDED · VERIFIED</div>
-          </div>
+        {/* Left: company updates */}
+        <div style={{ flex: "1 1 380px", background: ink, color: porcelain, padding: "44px 44px 36px", display: "flex", flexDirection: "column", minHeight: "320px" }}>
+          <div style={{ fontFamily: serif, fontSize: "30px", letterSpacing: "0.01em", marginBottom: "28px" }}>InsightRide</div>
 
-          <div style={{ margin: "40px 0", maxWidth: "420px" }} aria-hidden="true">
-            {TRANSCRIPT.map(([sp, t, w], i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "16px", opacity: 0.9 - i * 0.07 }}>
-                <span style={{ fontFamily: mono, fontSize: "10px", color: sp === "SPEAKER A" ? "#7FA893" : "#C8D6CC", width: "86px", flexShrink: 0, letterSpacing: "0.06em" }}>{sp} · {t}</span>
-                <span style={{ height: "8px", borderRadius: "4px", background: sp === "SPEAKER A" ? "#24443533" : "#2E4F3F", width: `${w}%`, display: "block", flex: `0 1 ${w}%` }} />
-              </div>
-            ))}
-          </div>
-
-          <div style={{ fontSize: "14px", lineHeight: "1.7", color: "#B9C6BB", maxWidth: "380px" }}>
-            Every finding in your portal traces back to a real conversation — recorded, transcribed, and tied to the moment it was said.
+          <div style={{ fontFamily: mono, fontSize: "11px", color: "#7FA893", letterSpacing: "0.1em", marginBottom: "14px" }}>UPDATES</div>
+          <div style={{ flex: 1, overflowY: "auto", maxHeight: "62vh", paddingRight: "6px" }}>
+            {updates.length === 0 ? (
+              <div style={{ fontSize: "14px", color: "#B9C6BB" }}>No updates posted yet.</div>
+            ) : (
+              updates.map((u) => {
+                const embed = youtubeEmbed(u.video_url);
+                return (
+                  <div key={u.id} style={{ background: "#16281F", border: "1px solid #244435", borderRadius: "12px", padding: "18px", marginBottom: "12px" }}>
+                    <div style={{ fontFamily: mono, fontSize: "10px", color: "#7FA893", letterSpacing: "0.08em", marginBottom: "8px" }}>
+                      {new Date(u.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }).toUpperCase()}
+                    </div>
+                    <div style={{ fontFamily: serif, fontSize: "17px", color: porcelain, marginBottom: "8px", lineHeight: "1.4" }}>{u.title}</div>
+                    <div style={{ fontSize: "13.5px", color: "#B9C6BB", lineHeight: "1.7", whiteSpace: "pre-wrap" }}>{u.body}</div>
+                    {embed && (
+                      <div style={{ marginTop: "12px", borderRadius: "8px", overflow: "hidden", aspectRatio: "16 / 9" }}>
+                        <iframe src={embed} title={u.title} style={{ width: "100%", height: "100%", border: "none" }} allowFullScreen />
+                      </div>
+                    )}
+                    {u.video_url && !embed && (
+                      <a href={u.video_url} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: "10px", fontSize: "13px", color: "#7FA893" }}>Watch video</a>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
-        {/* Right: sign-in */}
+        {/* Right: sign-in (unchanged) */}
         <div style={{ flex: "1 1 420px", display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 24px" }}>
           <div style={{ width: "100%", maxWidth: "400px" }}>
             <div style={{ background: card, border: `1.5px solid ${line}`, borderRadius: "14px", padding: "34px 30px", boxShadow: "0 2px 14px rgba(15,31,24,0.05)" }}>
@@ -144,7 +160,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Footer sections */}
+      {/* Footer: centered links, © pinned bottom-right */}
       <div style={{ borderTop: `1.5px solid ${line}`, background: "#E7EBE4" }}>
         {openSection && (
           <div style={{ maxWidth: "760px", margin: "0 auto", padding: "26px 24px 6px" }}>
@@ -157,13 +173,15 @@ export default function LoginPage() {
             </div>
           </div>
         )}
-        <div style={{ maxWidth: "760px", margin: "0 auto", padding: "18px 24px", display: "flex", gap: "26px", flexWrap: "wrap", alignItems: "center" }}>
-          {sections.map((s) => (
-            <button key={s.key} onClick={() => setOpenSection(openSection?.key === s.key ? null : s.key === openSection?.key ? null : s)} style={{ background: "none", border: "none", color: openSection?.key === s.key ? pine : faint, fontSize: "13px", fontWeight: openSection?.key === s.key ? "600" : "400", cursor: "pointer", fontFamily: sans, padding: 0 }}>
-              {s.title}
-            </button>
-          ))}
-          <span style={{ marginLeft: "auto", fontFamily: mono, fontSize: "11px", color: "#93A092" }}>© {new Date().getFullYear()} InsightRide</span>
+        <div style={{ position: "relative", padding: "18px 24px" }}>
+          <div style={{ display: "flex", gap: "26px", flexWrap: "wrap", justifyContent: "center", alignItems: "center" }}>
+            {sections.map((s) => (
+              <button key={s.key} onClick={() => setOpenSection(openSection?.key === s.key ? null : s)} style={{ background: "none", border: "none", color: openSection?.key === s.key ? pine : faint, fontSize: "13px", fontWeight: openSection?.key === s.key ? "600" : "400", cursor: "pointer", fontFamily: sans, padding: 0 }}>
+                {s.title}
+              </button>
+            ))}
+          </div>
+          <span style={{ position: "absolute", right: "24px", bottom: "18px", fontFamily: mono, fontSize: "11px", color: "#93A092" }}>© {new Date().getFullYear()} InsightRide</span>
         </div>
       </div>
     </div>
