@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
+import AdminGuard from "../AdminGuard";
 
 const AGE_OPTIONS = ["", "18-24", "25-34", "35-44", "45-54", "55-64", "65+"];
 const GENDER_OPTIONS = ["", "Male", "Female", "Non-binary", "Prefer not to say"];
@@ -147,123 +148,124 @@ export default function UploadInterviewPage() {
   const summarizedCount = interviews.filter((i) => i.status === "summarized").length;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0E0E0C", fontFamily: F, paddingBottom: "60px" }}>
-      <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #1A1A18" }}>
-        <a href="/admin" style={{ fontSize: "13px", color: "#D4A017", textDecoration: "none" }}>← Back to admin</a>
-        <div style={{ fontSize: "22px", fontWeight: "700", color: "#E8E8E4", marginTop: "6px" }}>Upload & process interviews</div>
-      </div>
-
-      <div style={{ padding: "20px 24px", maxWidth: "640px" }}>
-        <div style={{ marginBottom: "20px" }}>
-          <label style={label}>Contract</label>
-          <select style={{ ...input, cursor: "pointer" }} value={contractId} onChange={(e) => setContractId(e.target.value)}>
-            <option value="">— Choose a contract —</option>
-            {contracts.map((c) => <option key={c.id} value={c.id}>{c.client}: {c.topic}</option>)}
-          </select>
+    <AdminGuard>
+      <div style={{ minHeight: "100vh", background: "#0E0E0C", fontFamily: F, paddingBottom: "60px" }}>
+        <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #1A1A18" }}>
+          <a href="/admin" style={{ fontSize: "13px", color: "#D4A017", textDecoration: "none" }}>← Back to admin</a>
+          <div style={{ fontSize: "22px", fontWeight: "700", color: "#E8E8E4", marginTop: "6px" }}>Upload & process interviews</div>
         </div>
 
-        <div style={{ marginBottom: "20px" }}>
-          <label style={label}>Interviewer name</label>
-          <input style={input} value={interviewerName} onChange={(e) => setInterviewerName(e.target.value)} placeholder="e.g. Alex R." />
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-          {demoFields.map(([key, lbl, opts]) => (
-            <div key={key}>
-              <label style={label}>{lbl}</label>
-              <select style={{ ...input, cursor: "pointer" }} value={demo[key]} onChange={(e) => setDemo({ ...demo, [key]: e.target.value })}>
-                {opts.map((o) => <option key={o} value={o}>{o === "" ? "— not set —" : o}</option>)}
-              </select>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ marginBottom: "20px" }}>
-          <label style={label}>Location (end-of-ride GPS)</label>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <input style={input} value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Latitude" />
-            <input style={input} value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Longitude" />
-            <button onClick={useMyLocation} style={{ padding: "0 16px", borderRadius: "10px", border: "1px solid #3A3A38", background: "#1E1E1C", color: "#A8A8A4", fontSize: "13px", cursor: "pointer", fontFamily: F, whiteSpace: "nowrap" }}>Use current</button>
+        <div style={{ padding: "20px 24px", maxWidth: "640px" }}>
+          <div style={{ marginBottom: "20px" }}>
+            <label style={label}>Contract</label>
+            <select style={{ ...input, cursor: "pointer" }} value={contractId} onChange={(e) => setContractId(e.target.value)}>
+              <option value="">— Choose a contract —</option>
+              {contracts.map((c) => <option key={c.id} value={c.id}>{c.client}: {c.topic}</option>)}
+            </select>
           </div>
-        </div>
 
-        <div style={{ marginBottom: "24px" }}>
-          <label style={label}>Interview video</label>
-          <input id="video-file-input" type="file" accept="video/*" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ ...input, padding: "10px 14px", cursor: "pointer" }} />
-          <div style={{ fontSize: "11px", color: "#888880", marginTop: "6px" }}>While on the Supabase free plan, keep the test file under 50 MB.</div>
-        </div>
+          <div style={{ marginBottom: "20px" }}>
+            <label style={label}>Interviewer name</label>
+            <input style={input} value={interviewerName} onChange={(e) => setInterviewerName(e.target.value)} placeholder="e.g. Alex R." />
+          </div>
 
-        {message && (<div style={{ padding: "12px 14px", borderRadius: "10px", marginBottom: "16px", fontSize: "13px", background: message.type === "error" ? "#3A2020" : "#1A2A20", color: message.type === "error" ? "#E06050" : "#6EC4A7" }}>{message.text}</div>)}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "20px" }}>
+            {demoFields.map(([key, lbl, opts]) => (
+              <div key={key}>
+                <label style={label}>{lbl}</label>
+                <select style={{ ...input, cursor: "pointer" }} value={demo[key]} onChange={(e) => setDemo({ ...demo, [key]: e.target.value })}>
+                  {opts.map((o) => <option key={o} value={o}>{o === "" ? "— not set —" : o}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
 
-        <button onClick={handleUpload} disabled={busy} style={{ width: "100%", padding: "16px", borderRadius: "12px", border: "none", background: busy ? "#3A3A38" : "#D4A017", color: busy ? "#888880" : "#0E0E0C", fontSize: "16px", fontWeight: "700", cursor: busy ? "not-allowed" : "pointer", fontFamily: F }}>
-          {busy ? "Uploading…" : "Upload interview"}
-        </button>
+          <div style={{ marginBottom: "20px" }}>
+            <label style={label}>Location (end-of-ride GPS)</label>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <input style={input} value={lat} onChange={(e) => setLat(e.target.value)} placeholder="Latitude" />
+              <input style={input} value={lng} onChange={(e) => setLng(e.target.value)} placeholder="Longitude" />
+              <button onClick={useMyLocation} style={{ padding: "0 16px", borderRadius: "10px", border: "1px solid #3A3A38", background: "#1E1E1C", color: "#A8A8A4", fontSize: "13px", cursor: "pointer", fontFamily: F, whiteSpace: "nowrap" }}>Use current</button>
+            </div>
+          </div>
 
-        {contractId && (
-          <div style={{ marginTop: "32px" }}>
-            <div style={{ fontSize: "12px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "12px" }}>Interviews in this contract</div>
-            {interviews.length === 0 ? (<div style={{ fontSize: "13px", color: "#888880" }}>No interviews uploaded yet.</div>) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {interviews.map((iv) => {
-                  const sd = iv.structured_data || null;
-                  const isProcessing = processingId === iv.id;
-                  return (
-                    <div key={iv.id} style={{ background: "#1A1A18", border: "1px solid #2A2A28", borderRadius: "10px", padding: "12px 14px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-                        <div style={{ fontSize: "14px", color: "#E8E8E4", fontWeight: "500" }}>Interview #{iv.interview_number}</div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "12px", fontWeight: "600", color: STATUS_COLORS[iv.status] || "#A8A8A4", textTransform: "capitalize" }}>{isProcessing ? "analysing…" : (iv.status || "uploaded")}</span>
-                          {(iv.status === "uploaded" || iv.status === "failed") && (<button onClick={() => transcribe(iv.id)} style={smallBtn("#D4A017", "#0E0E0C")}>{iv.status === "failed" ? "Retry" : "Transcribe"}</button>)}
-                          {iv.status === "transcribed" && (<button onClick={() => summarize(iv.id)} disabled={isProcessing} style={smallBtn("#6EC4A7", "#0E0E0C")}>{isProcessing ? "Running…" : "Run AI"}</button>)}
-                          {(iv.status === "transcribed" || iv.status === "summarized") && iv.transcript && (<button onClick={() => toggle(iv.id, "transcript")} style={smallBtn("#1E1E1C", "#A8A8A4", "1px solid #3A3A38")}>{panel && panel.id === iv.id && panel.kind === "transcript" ? "Hide" : "Transcript"}</button>)}
-                          {iv.status === "summarized" && sd && (<button onClick={() => toggle(iv.id, "analysis")} style={smallBtn("#1E1E1C", "#6EC4A7", "1px solid #2A3A2E")}>{panel && panel.id === iv.id && panel.kind === "analysis" ? "Hide" : "Analysis"}</button>)}
+          <div style={{ marginBottom: "24px" }}>
+            <label style={label}>Interview video</label>
+            <input id="video-file-input" type="file" accept="video/*" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ ...input, padding: "10px 14px", cursor: "pointer" }} />
+            <div style={{ fontSize: "11px", color: "#888880", marginTop: "6px" }}>While on the Supabase free plan, keep the test file under 50 MB.</div>
+          </div>
+
+          {message && (<div style={{ padding: "12px 14px", borderRadius: "10px", marginBottom: "16px", fontSize: "13px", background: message.type === "error" ? "#3A2020" : "#1A2A20", color: message.type === "error" ? "#E06050" : "#6EC4A7" }}>{message.text}</div>)}
+
+          <button onClick={handleUpload} disabled={busy} style={{ width: "100%", padding: "16px", borderRadius: "12px", border: "none", background: busy ? "#3A3A38" : "#D4A017", color: busy ? "#888880" : "#0E0E0C", fontSize: "16px", fontWeight: "700", cursor: busy ? "not-allowed" : "pointer", fontFamily: F }}>
+            {busy ? "Uploading…" : "Upload interview"}
+          </button>
+
+          {contractId && (
+            <div style={{ marginTop: "32px" }}>
+              <div style={{ fontSize: "12px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "12px" }}>Interviews in this contract</div>
+              {interviews.length === 0 ? (<div style={{ fontSize: "13px", color: "#888880" }}>No interviews uploaded yet.</div>) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {interviews.map((iv) => {
+                    const sd = iv.structured_data || null;
+                    const isProcessing = processingId === iv.id;
+                    return (
+                      <div key={iv.id} style={{ background: "#1A1A18", border: "1px solid #2A2A28", borderRadius: "10px", padding: "12px 14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                          <div style={{ fontSize: "14px", color: "#E8E8E4", fontWeight: "500" }}>Interview #{iv.interview_number}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: "12px", fontWeight: "600", color: STATUS_COLORS[iv.status] || "#A8A8A4", textTransform: "capitalize" }}>{isProcessing ? "analysing…" : (iv.status || "uploaded")}</span>
+                            {(iv.status === "uploaded" || iv.status === "failed") && (<button onClick={() => transcribe(iv.id)} style={smallBtn("#D4A017", "#0E0E0C")}>{iv.status === "failed" ? "Retry" : "Transcribe"}</button>)}
+                            {iv.status === "transcribed" && (<button onClick={() => summarize(iv.id)} disabled={isProcessing} style={smallBtn("#6EC4A7", "#0E0E0C")}>{isProcessing ? "Running…" : "Run AI"}</button>)}
+                            {(iv.status === "transcribed" || iv.status === "summarized") && iv.transcript && (<button onClick={() => toggle(iv.id, "transcript")} style={smallBtn("#1E1E1C", "#A8A8A4", "1px solid #3A3A38")}>{panel && panel.id === iv.id && panel.kind === "transcript" ? "Hide" : "Transcript"}</button>)}
+                            {iv.status === "summarized" && sd && (<button onClick={() => toggle(iv.id, "analysis")} style={smallBtn("#1E1E1C", "#6EC4A7", "1px solid #2A3A2E")}>{panel && panel.id === iv.id && panel.kind === "analysis" ? "Hide" : "Analysis"}</button>)}
+                          </div>
                         </div>
+                        {panel && panel.id === iv.id && panel.kind === "transcript" && iv.transcript && (
+                          <div style={{ marginTop: "10px", padding: "12px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#C8C8C4", lineHeight: "1.6", maxHeight: "260px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{iv.transcript}</div>
+                        )}
+                        {panel && panel.id === iv.id && panel.kind === "analysis" && sd && (
+                          <div style={{ marginTop: "10px", padding: "14px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#C8C8C4", lineHeight: "1.6" }}>
+                            <div style={{ marginBottom: "10px" }}><span style={{ color: "#888880" }}>Summary:</span> {sd.summary}</div>
+                            <div style={{ marginBottom: "10px" }}><span style={{ color: "#888880" }}>Quality:</span> {sd.quality?.score}/10{sd.quality?.flagged_for_exclusion ? " — flagged: " + (sd.quality.flag_reason || "low quality") : ""}</div>
+                            <div style={{ marginBottom: "10px" }}><span style={{ color: "#888880" }}>Sentiment:</span> {sd.sentiment?.overall}</div>
+                            {Array.isArray(sd.themes) && sd.themes.length > 0 && (<div style={{ marginBottom: "10px" }}><span style={{ color: "#888880" }}>Themes:</span> {sd.themes.join(", ")}</div>)}
+                            {sd.extracted_fields && Object.keys(sd.extracted_fields).length > 0 && (
+                              <div style={{ marginTop: "12px", borderTop: "1px solid #2A2A28", paddingTop: "10px" }}>
+                                <div style={{ color: "#888880", textTransform: "uppercase", fontSize: "11px", letterSpacing: "0.05em", marginBottom: "6px" }}>Extracted fields</div>
+                                {Object.entries(sd.extracted_fields).map(([k, f]) => (
+                                  <div key={k} style={{ marginBottom: "4px" }}><span style={{ color: "#6EC4A7" }}>{k}:</span> {f && f.mentioned ? fmtValue(f.value) : "not mentioned"}{f && f.mentioned && f.confidence ? ` (${f.confidence})` : ""}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      {panel && panel.id === iv.id && panel.kind === "transcript" && iv.transcript && (
-                        <div style={{ marginTop: "10px", padding: "12px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#C8C8C4", lineHeight: "1.6", maxHeight: "260px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{iv.transcript}</div>
-                      )}
-                      {panel && panel.id === iv.id && panel.kind === "analysis" && sd && (
-                        <div style={{ marginTop: "10px", padding: "14px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#C8C8C4", lineHeight: "1.6" }}>
-                          <div style={{ marginBottom: "10px" }}><span style={{ color: "#888880" }}>Summary:</span> {sd.summary}</div>
-                          <div style={{ marginBottom: "10px" }}><span style={{ color: "#888880" }}>Quality:</span> {sd.quality?.score}/10{sd.quality?.flagged_for_exclusion ? " — flagged: " + (sd.quality.flag_reason || "low quality") : ""}</div>
-                          <div style={{ marginBottom: "10px" }}><span style={{ color: "#888880" }}>Sentiment:</span> {sd.sentiment?.overall}</div>
-                          {Array.isArray(sd.themes) && sd.themes.length > 0 && (<div style={{ marginBottom: "10px" }}><span style={{ color: "#888880" }}>Themes:</span> {sd.themes.join(", ")}</div>)}
-                          {sd.extracted_fields && Object.keys(sd.extracted_fields).length > 0 && (
-                            <div style={{ marginTop: "12px", borderTop: "1px solid #2A2A28", paddingTop: "10px" }}>
-                              <div style={{ color: "#888880", textTransform: "uppercase", fontSize: "11px", letterSpacing: "0.05em", marginBottom: "6px" }}>Extracted fields</div>
-                              {Object.entries(sd.extracted_fields).map(([k, f]) => (
-                                <div key={k} style={{ marginBottom: "4px" }}><span style={{ color: "#6EC4A7" }}>{k}:</span> {f && f.mentioned ? fmtValue(f.value) : "not mentioned"}{f && f.mentioned && f.confidence ? ` (${f.confidence})` : ""}</div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Report section */}
-            <div style={{ marginTop: "28px", background: "#141414", border: "1px solid #2A2A28", borderRadius: "12px", padding: "16px" }}>
-              <div style={{ fontSize: "12px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "10px" }}>Contract report</div>
-              <div style={{ fontSize: "13px", color: "#A8A8A4", marginBottom: "12px" }}>
-                {summarizedCount} of {threshold} interviews analysed{summarizedCount >= threshold && threshold > 0 ? " — threshold reached." : threshold > 0 ? ` (you can still generate now for testing).` : "."}
-              </div>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                <button onClick={generateReport} disabled={reportBusy || summarizedCount === 0} style={{ padding: "12px 18px", borderRadius: "10px", border: "none", background: reportBusy || summarizedCount === 0 ? "#3A3A38" : "#D4A017", color: reportBusy || summarizedCount === 0 ? "#888880" : "#0E0E0C", fontSize: "14px", fontWeight: "700", cursor: reportBusy || summarizedCount === 0 ? "not-allowed" : "pointer", fontFamily: F }}>
-                  {reportBusy ? "Generating… (up to a minute)" : report ? "Regenerate report" : "Generate report"}
-                </button>
-                {report && (<button onClick={() => setShowReport(!showReport)} style={smallBtn("#1E1E1C", "#6EC4A7", "1px solid #2A3A2E")}>{showReport ? "Hide report" : "View report"}</button>)}
-              </div>
-              {report && (<div style={{ fontSize: "11px", color: "#888880", marginTop: "8px" }}>Last generated {new Date(report.generated_at).toLocaleString()} · {report.interviews_included} interviews included</div>)}
-              {report && showReport && (
-                <div style={{ marginTop: "14px", padding: "16px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#D8D8D4", lineHeight: "1.7", maxHeight: "500px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{report.content}</div>
+                    );
+                  })}
+                </div>
               )}
+
+              <div style={{ marginTop: "28px", background: "#141414", border: "1px solid #2A2A28", borderRadius: "12px", padding: "16px" }}>
+                <div style={{ fontSize: "12px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "10px" }}>Contract report</div>
+                <div style={{ fontSize: "13px", color: "#A8A8A4", marginBottom: "12px" }}>
+                  {summarizedCount} of {threshold} interviews analysed{summarizedCount >= threshold && threshold > 0 ? " — threshold reached." : threshold > 0 ? ` (you can still generate now for testing).` : "."}
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                  <button onClick={generateReport} disabled={reportBusy || summarizedCount === 0} style={{ padding: "12px 18px", borderRadius: "10px", border: "none", background: reportBusy || summarizedCount === 0 ? "#3A3A38" : "#D4A017", color: reportBusy || summarizedCount === 0 ? "#888880" : "#0E0E0C", fontSize: "14px", fontWeight: "700", cursor: reportBusy || summarizedCount === 0 ? "not-allowed" : "pointer", fontFamily: F }}>
+                    {reportBusy ? "Generating… (up to a minute)" : report ? "Regenerate report" : "Generate report"}
+                  </button>
+                  {report && (<button onClick={() => setShowReport(!showReport)} style={smallBtn("#1E1E1C", "#6EC4A7", "1px solid #2A3A2E")}>{showReport ? "Hide report" : "View report"}</button>)}
+                </div>
+                {report && (<div style={{ fontSize: "11px", color: "#888880", marginTop: "8px" }}>Last generated {new Date(report.generated_at).toLocaleString()} · {report.interviews_included} interviews included</div>)}
+                {report && showReport && (
+                  <div style={{ marginTop: "14px", padding: "16px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#D8D8D4", lineHeight: "1.7", maxHeight: "500px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{report.content}</div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+    </AdminGuard>
   );
 }
