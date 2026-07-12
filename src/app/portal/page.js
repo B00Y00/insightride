@@ -77,9 +77,9 @@ export default function ClientPortal() {
                       <div style={{ height: "100%", width: `${pct}%`, background: pine, borderRadius: "3px" }} />
                     </div>
                   </div>
-                  <div style={{ padding: "10px 14px", borderRadius: "9px", background: "#F4F6F2", border: `1px dashed ${line}`, fontSize: "12.5px", color: faint, lineHeight: "1.5" }}>
-                    Folder view (videos, transcripts, report) opens here in the next update.
-                  </div>
+                  <a href={`/portal/${c.id}`} style={{ padding: "12px 14px", borderRadius: "9px", background: pine, color: "#fff", fontSize: "13.5px", fontWeight: "600", textAlign: "center", textDecoration: "none" }}>
+                    Open contract →
+                  </a>
                 </div>
               );
             })}
