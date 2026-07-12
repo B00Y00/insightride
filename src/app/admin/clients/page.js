@@ -107,7 +107,9 @@ export default function AdminClientsPage() {
               <div key={cl.id} style={{ background: "#1A1A18", border: "1px solid #2A2A28", borderRadius: "12px", padding: "14px", marginBottom: "12px" }}>
                 <div style={{ fontSize: "14px", color: "#E8E8E4", fontWeight: "600" }}>{cl.full_name || cl.email}</div>
                 <div style={{ fontSize: "12px", color: "#888880", marginBottom: "10px" }}>{cl.email}{cl.must_change_password ? " · hasn't signed in yet (temporary password active)" : ""}</div>
-
+<button onClick={async () => { await supabase.from("profiles").update({ allow_downloads: cl.allow_downloads === false }).eq("id", cl.id); loadAll(); }} style={{ padding: "6px 12px", borderRadius: "8px", border: "1px solid #3A3A38", background: cl.allow_downloads === false ? "#3A2020" : "#1A2A20", color: cl.allow_downloads === false ? "#E06050" : "#6EC4A7", fontSize: "11px", fontWeight: "600", cursor: "pointer", fontFamily: F, marginBottom: "10px" }}>
+                  {cl.allow_downloads === false ? "Video downloads: OFF (click to allow)" : "Video downloads: ON (click to block)"}
+                </button>
                 {clientLinks.length > 0 && (
                   <div style={{ marginBottom: "10px" }}>
                     {clientLinks.map((l) => (
