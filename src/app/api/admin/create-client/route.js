@@ -1,12 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 
-const admin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Server is missing SUPABASE_SERVICE_ROLE_KEY — add it in Vercel and redeploy.");
+  return createClient(url, key);
+}
 
 export async function POST(request) {
   try {
+    const admin = getAdminClient();
+
     // 1. Verify the caller is a signed-in admin
     const authHeader = request.headers.get("authorization") || "";
     const token = authHeader.replace("Bearer ", "");
