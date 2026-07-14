@@ -140,7 +140,24 @@ const [editText, setEditText] = useState(null);
       setMessage({ type: "error", text: "Report generation failed: " + (e.message || String(e)) });
     } finally { setReportBusy(false); }
   }
+async function saveReportEdits() {
+    if (editText === null || !report) return;
+    const { error } = await supabase.from("reports").update({ content: editText }).eq("id", report.id);
+    if (error) { setMessage({ type: "error", text: "Couldn't save edits: " + error.message }); return; }
+    setReport({ ...report, content: editText });
+    setEditText(null);
+    setMessage({ type: "ok", text: "Report edits saved." });
+  }
 
+  async function toggleApprove() {
+    if (!report) return;
+    setApproveBusy(true);
+    const next = !report.approved;
+    const { error } = await supabase.from("reports").update({ approved: next }).eq("id", report.id);
+    if (error) setMessage({ type: "error", text: "Couldn't update approval: " + error.message });
+    else { setReport({ ...report, approved: next }); setMessage({ type: "ok", text: next ? "Report approved — clients assigned to this contract can now see it." : "Approval removed — the report is hidden from clients again." }); }
+    setApproveBusy(false);
+  }
   function toggle(id, kind) { setPanel((p) => (p && p.id === id && p.kind === kind) ? null : { id, kind }); }
 
   const demoFields = [["ageRange", "Age range", AGE_OPTIONS], ["gender", "Gender", GENDER_OPTIONS], ["ethnicity", "Ethnicity", ETHNICITY_OPTIONS], ["profession", "Profession", PROFESSION_OPTIONS]];
