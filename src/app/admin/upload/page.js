@@ -264,7 +264,7 @@ async function saveReportEdits() {
                 </div>
               )}
 
-              <div style={{ marginTop: "28px", background: "#141414", border: "1px solid #2A2A28", borderRadius: "12px", padding: "16px" }}>
+            <div style={{ marginTop: "28px", background: "#141414", border: "1px solid #2A2A28", borderRadius: "12px", padding: "16px" }}>
                 <div style={{ fontSize: "12px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "10px" }}>Contract report</div>
                 <div style={{ fontSize: "13px", color: "#A8A8A4", marginBottom: "12px" }}>
                   {summarizedCount} of {threshold} interviews analysed{summarizedCount >= threshold && threshold > 0 ? " — threshold reached." : threshold > 0 ? ` (you can still generate now for testing).` : "."}
@@ -274,10 +274,32 @@ async function saveReportEdits() {
                     {reportBusy ? "Generating… (up to a minute)" : report ? "Regenerate report" : "Generate report"}
                   </button>
                   {report && (<button onClick={() => setShowReport(!showReport)} style={smallBtn("#1E1E1C", "#6EC4A7", "1px solid #2A3A2E")}>{showReport ? "Hide report" : "View report"}</button>)}
+                  {report && (
+                    <button onClick={toggleApprove} disabled={approveBusy} style={smallBtn(report.approved ? "#3A2020" : "#1A2A20", report.approved ? "#E06050" : "#6EC4A7", "1px solid " + (report.approved ? "#4A2A2A" : "#2A3A2E"))}>
+                      {approveBusy ? "Working…" : report.approved ? "Unapprove (hide from client)" : "Approve — publish to client"}
+                    </button>
+                  )}
                 </div>
-                {report && (<div style={{ fontSize: "11px", color: "#888880", marginTop: "8px" }}>Last generated {new Date(report.generated_at).toLocaleString()} · {report.interviews_included} interviews included</div>)}
-                {report && showReport && (
-                  <div style={{ marginTop: "14px", padding: "16px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#D8D8D4", lineHeight: "1.7", maxHeight: "500px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{report.content}</div>
+                {report && (
+                  <div style={{ fontSize: "11px", color: report.approved ? "#6EC4A7" : "#D4A017", marginTop: "8px", fontWeight: "600" }}>
+                    {report.approved ? "✓ APPROVED — visible in the client portal" : "DRAFT — not yet visible to clients"}
+                    <span style={{ color: "#888880", fontWeight: "400" }}> · generated {new Date(report.generated_at).toLocaleString()} · {report.interviews_included} interviews</span>
+                  </div>
+                )}
+                {report && showReport && editText === null && (
+                  <div>
+                    <div style={{ marginTop: "14px", padding: "16px", background: "#0E0E0C", border: "1px solid #2A2A28", borderRadius: "8px", fontSize: "13px", color: "#D8D8D4", lineHeight: "1.7", maxHeight: "500px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{report.content}</div>
+                    <button onClick={() => setEditText(report.content)} style={{ ...smallBtn("#1E1E1C", "#D4A017", "1px solid #3A3A38"), marginTop: "10px" }}>Edit report text</button>
+                  </div>
+                )}
+                {report && showReport && editText !== null && (
+                  <div>
+                    <textarea value={editText} onChange={(e) => setEditText(e.target.value)} style={{ width: "100%", minHeight: "420px", marginTop: "14px", padding: "16px", borderRadius: "8px", border: "1px solid #3A3A38", background: "#0E0E0C", color: "#E8E8E4", fontSize: "13px", fontFamily: F, lineHeight: "1.7", boxSizing: "border-box", outline: "none", resize: "vertical" }} />
+                    <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                      <button onClick={saveReportEdits} style={smallBtn("#6EC4A7", "#0E0E0C")}>Save edits</button>
+                      <button onClick={() => setEditText(null)} style={smallBtn("#1E1E1C", "#A8A8A4", "1px solid #3A3A38")}>Discard changes</button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
