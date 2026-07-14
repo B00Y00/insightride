@@ -128,6 +128,7 @@ export default function ContractFolder() {
           <FolderCard icon="🎬" title="Videos" count={withVideo.length} onClick={() => setFolder("videos")} active={folder === "videos"} />
           <FolderCard icon="📄" title="Transcripts" count={withTranscript.length} onClick={() => setFolder("transcripts")} active={folder === "transcripts"} />
           <FolderCard icon="📊" title="Report" note={report ? "Ready to read" : "In preparation"} onClick={() => setFolder("report")} active={folder === "report"} />
+    <FolderCard icon="📈" title="Statistics" note="Explore the numbers" onClick={() => { window.location.href = `/portal/${contractId}/stats`; }} active={false} />
         </div>
 
         {notice && <div style={{ padding: "11px 14px", borderRadius: "9px", background: "#F7E9E6", color: "#8C3A2B", fontSize: "13px", marginBottom: "16px" }}>{notice}</div>}
