@@ -22,13 +22,14 @@ function FolderCard({ icon, title, count, note, onClick, active }) {
 
 export default function ContractFolder() {
   const { contractId } = useParams();
-  const [state, setState] = useState("loading"); // loading | ok | denied
+  const [state, setState] = useState("loading");
   const [contract, setContract] = useState(null);
   const [interviews, setInterviews] = useState([]);
+  const [report, setReport] = useState(null);
   const [canDownload, setCanDownload] = useState(true);
-  const [folder, setFolder] = useState("videos"); // videos | transcripts | report
+  const [folder, setFolder] = useState("videos");
   const [openTranscript, setOpenTranscript] = useState(null);
-  const [player, setPlayer] = useState(null); // { number, url }
+  const [player, setPlayer] = useState(null);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -49,6 +50,13 @@ export default function ContractFolder() {
         .eq("contract_id", contractId)
         .order("interview_number", { ascending: true });
       setInterviews(ivs || []);
+
+      const { data: reps } = await supabase.from("reports")
+        .select("content, generated_at, interviews_included")
+        .eq("contract_id", contractId).eq("approved", true)
+        .order("generated_at", { ascending: false }).limit(1);
+      if (reps && reps[0]) setReport(reps[0]);
+
       setState("ok");
     })();
   }, [contractId]);
@@ -65,6 +73,29 @@ export default function ContractFolder() {
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(iv.video_url, 3600, { download: `interview-${iv.interview_number}.mp4` });
     if (error || !data?.signedUrl) { setNotice("Couldn't prepare the download. Please try again."); return; }
     window.location.href = data.signedUrl;
+  }
+
+  function downloadPdf() {
+    if (!report) return;
+    const w = window.open("", "_blank");
+    if (!w) { setNotice("Your browser blocked the report window — allow pop-ups for this site and try again."); return; }
+    const safe = (report.content || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    w.document.write(`<!DOCTYPE html><html><head><title>InsightRide Report — ${contract.topic.replace(/</g, "")}</title>
+      <style>
+        body { font-family: Georgia, serif; color: #1A241E; max-width: 720px; margin: 40px auto; padding: 0 24px; line-height: 1.75; }
+        .brand { font-size: 13px; letter-spacing: 0.12em; color: #1B6B4A; text-transform: uppercase; margin-bottom: 6px; }
+        h1 { font-size: 24px; margin: 0 0 4px; }
+        .meta { font-size: 12px; color: #63705F; margin-bottom: 28px; border-bottom: 1px solid #D9DED7; padding-bottom: 14px; }
+        pre { white-space: pre-wrap; font-family: Georgia, serif; font-size: 14px; }
+        @media print { body { margin: 12mm; } }
+      </style></head><body>
+      <div class="brand">InsightRide Research</div>
+      <h1>${contract.topic.replace(/</g, "&lt;")}</h1>
+      <div class="meta">Report generated ${new Date(report.generated_at).toLocaleDateString()} · based on ${report.interviews_included} interviews</div>
+      <pre>${safe}</pre>
+      <script>window.onload = function(){ window.print(); };</script>
+      </body></html>`);
+    w.document.close();
   }
 
   if (state === "loading") return <div style={{ minHeight: "100vh", background: porcelain, display: "flex", alignItems: "center", justifyContent: "center", color: faint, fontFamily: sans, fontSize: "14px" }}>Opening contract…</div>;
@@ -96,7 +127,7 @@ export default function ContractFolder() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px", marginBottom: "28px" }}>
           <FolderCard icon="🎬" title="Videos" count={withVideo.length} onClick={() => setFolder("videos")} active={folder === "videos"} />
           <FolderCard icon="📄" title="Transcripts" count={withTranscript.length} onClick={() => setFolder("transcripts")} active={folder === "transcripts"} />
-          <FolderCard icon="📊" title="Report" note="Final report & insights" onClick={() => setFolder("report")} active={folder === "report"} />
+          <FolderCard icon="📊" title="Report" note={report ? "Ready to read" : "In preparation"} onClick={() => setFolder("report")} active={folder === "report"} />
         </div>
 
         {notice && <div style={{ padding: "11px 14px", borderRadius: "9px", background: "#F7E9E6", color: "#8C3A2B", fontSize: "13px", marginBottom: "16px" }}>{notice}</div>}
@@ -146,7 +177,7 @@ export default function ContractFolder() {
           </div>
         )}
 
-        {folder === "report" && (
+        {folder === "report" && !report && (
           <div style={{ background: card, border: `1.5px solid ${line}`, borderRadius: "14px", padding: "34px", textAlign: "center" }}>
             <div style={{ fontSize: "26px", marginBottom: "10px" }}>📊</div>
             <div style={{ fontFamily: serif, fontSize: "18px", color: ink, marginBottom: "8px" }}>Your report is being prepared</div>
@@ -155,9 +186,23 @@ export default function ContractFolder() {
             </div>
           </div>
         )}
+
+        {folder === "report" && report && (
+          <div style={{ background: card, border: `1.5px solid ${line}`, borderRadius: "14px", padding: "30px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px", marginBottom: "18px", borderBottom: `1px solid ${line}`, paddingBottom: "16px" }}>
+              <div>
+                <div style={{ fontFamily: mono, fontSize: "10px", color: pine, letterSpacing: "0.1em", marginBottom: "6px" }}>FINAL REPORT</div>
+                <div style={{ fontSize: "12.5px", color: faint }}>Generated {new Date(report.generated_at).toLocaleDateString()} · based on {report.interviews_included} interviews</div>
+              </div>
+              <button onClick={downloadPdf} style={{ padding: "10px 18px", borderRadius: "9px", border: "none", background: pine, color: "#fff", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: sans }}>
+                Download PDF
+              </button>
+            </div>
+            <div style={{ fontSize: "14.5px", color: text, lineHeight: "1.85", whiteSpace: "pre-wrap", fontFamily: "Georgia, serif" }}>{report.content}</div>
+          </div>
+        )}
       </div>
 
-      {/* Video player pop-up */}
       {player && (
         <div onClick={() => setPlayer(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,31,24,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: ink, borderRadius: "14px", padding: "16px", width: "100%", maxWidth: "760px" }}>
