@@ -38,7 +38,8 @@ export default function UploadInterviewPage() {
   const [report, setReport] = useState(null);
   const [reportBusy, setReportBusy] = useState(false);
   const [showReport, setShowReport] = useState(false);
-
+const [editText, setEditText] = useState(null);
+  const [approveBusy, setApproveBusy] = useState(false);
   useEffect(() => {
     supabase.from("contracts").select("id, client, topic, report_threshold").order("created_at", { ascending: false }).then(({ data }) => { if (data) setContracts(data); });
   }, []);
