@@ -63,9 +63,10 @@ export async function POST(request) {
     const isAdminUser = prof?.role === "admin";
     let allowance = 50;
     if (!isAdminUser) {
-      const { data: link } = await admin.from("client_contracts").select("prompt_allowance, access_revoked")
+     const { data: link } = await admin.from("client_contracts").select("prompt_allowance, access_revoked, chat_paused")
         .eq("client_id", userId).eq("contract_id", contractId).single();
       if (!link || link.access_revoked) return Response.json({ error: "This contract isn't assigned to your account." }, { status: 403 });
+      if (link.chat_paused) return Response.json({ paused: true, answer: "Your questions for this contract are paused after several off-topic prompts. Contact InsightRide to restore access." });
       allowance = link.prompt_allowance ?? 50;
     }
     const { count: used } = await admin.from("chat_logs").select("id", { count: "exact", head: true })
@@ -114,8 +115,11 @@ export async function POST(request) {
     if (!plan.relevant) {
       const { count: flags } = await admin.from("chat_logs").select("id", { count: "exact", head: true })
         .eq("client_id", userId).eq("contract_id", contractId).eq("status", "flagged");
-      await admin.from("chat_logs").insert([{ ...logBase, answer: null, status: "flagged", cost_estimate: totalCost }]);
-      return Response.json({ flagged: true, flagCount: (flags || 0) + 1, used, allowance,
+await admin.from("chat_logs").insert([{ ...logBase, answer: null, status: "flagged", cost_estimate: totalCost }]);
+      const newFlags = (flags || 0) + 1;
+      if (!isAdminUser && newFlags > 0 && newFlags % 3 === 0) {
+        await admin.from("client_contracts").update({ chat_paused: true }).eq("client_id", userId).eq("contract_id", contractId);
+      }      return Response.json({ flagged: true, flagCount: (flags || 0) + 1, used, allowance,
         answer: "That question doesn't seem related to this research contract, so it hasn't used any of your prompts. I can answer questions about the interviews, respondents, and findings in this study." });
     }
 
