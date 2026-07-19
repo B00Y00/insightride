@@ -2,26 +2,23 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+import { useTheme, sans, mono, FONT_LINK, Icon } from "../theme";
 
-const ink = "#0F1F18", pine = "#1B6B4A", porcelain = "#EEF1EC", card = "#FFFFFF",
-  line = "#D9DED7", text = "#1A241E", faint = "#63705F";
-const serif = "'Young Serif', Georgia, serif";
-const sans = "'Outfit', sans-serif";
-const mono = "'IBM Plex Mono', ui-monospace, monospace";
 const BUCKET = "interview-videos";
 
-function FolderCard({ icon, title, count, note, onClick, active }) {
+function FolderCard({ T, icon, title, note, onClick, active }) {
   return (
-    <button onClick={onClick} style={{ background: active ? "#E4EFE8" : card, border: `1.5px solid ${active ? pine : line}`, borderRadius: "14px", padding: "20px", textAlign: "left", cursor: "pointer", fontFamily: sans, display: "flex", flexDirection: "column", gap: "6px" }}>
-      <div style={{ fontSize: "22px" }}>{icon}</div>
-      <div style={{ fontFamily: serif, fontSize: "16px", color: ink }}>{title}</div>
-      <div style={{ fontSize: "12.5px", color: faint }}>{count != null ? `${count} item${count === 1 ? "" : "s"}` : note}</div>
+    <button onClick={onClick} style={{ background: active ? T.pineSoft : T.card, border: `1.5px solid ${active ? T.pine : T.line}`, borderRadius: "14px", padding: "18px 20px", textAlign: "left", cursor: "pointer", fontFamily: sans, display: "flex", flexDirection: "column", gap: "8px" }}>
+      <span style={{ color: T.pine }}><Icon name={icon} size={22} /></span>
+      <div style={{ fontSize: "15px", fontWeight: 600, color: T.text, letterSpacing: "-0.01em" }}>{title}</div>
+      {note && <div style={{ fontSize: "12.5px", color: T.faint }}>{note}</div>}
     </button>
   );
 }
 
 export default function ContractFolder() {
   const { contractId } = useParams();
+  const [T] = useTheme();
   const [state, setState] = useState("loading");
   const [contract, setContract] = useState(null);
   const [interviews, setInterviews] = useState([]);
@@ -82,11 +79,11 @@ export default function ContractFolder() {
     const safe = (report.content || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     w.document.write(`<!DOCTYPE html><html><head><title>InsightRide Report — ${contract.topic.replace(/</g, "")}</title>
       <style>
-        body { font-family: Georgia, serif; color: #1A241E; max-width: 720px; margin: 40px auto; padding: 0 24px; line-height: 1.75; }
-        .brand { font-size: 13px; letter-spacing: 0.12em; color: #1B6B4A; text-transform: uppercase; margin-bottom: 6px; }
+        body { font-family: 'Segoe UI', -apple-system, sans-serif; color: #1A241E; max-width: 720px; margin: 40px auto; padding: 0 24px; line-height: 1.75; }
+        .brand { font-size: 13px; letter-spacing: 0.12em; color: #1B6B4A; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
         h1 { font-size: 24px; margin: 0 0 4px; }
         .meta { font-size: 12px; color: #63705F; margin-bottom: 28px; border-bottom: 1px solid #D9DED7; padding-bottom: 14px; }
-        pre { white-space: pre-wrap; font-family: Georgia, serif; font-size: 14px; }
+        pre { white-space: pre-wrap; font-family: inherit; font-size: 14px; }
         @media print { body { margin: 12mm; } }
       </style></head><body>
       <div class="brand">InsightRide Research</div>
@@ -98,13 +95,13 @@ export default function ContractFolder() {
     w.document.close();
   }
 
-  if (state === "loading") return <div style={{ minHeight: "100vh", background: porcelain, display: "flex", alignItems: "center", justifyContent: "center", color: faint, fontFamily: sans, fontSize: "14px" }}>Opening contract…</div>;
+  if (state === "loading") return <div style={{ minHeight: "100vh", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontFamily: sans, fontSize: "14px" }}>Opening contract…</div>;
 
   if (state === "denied") return (
-    <div style={{ minHeight: "100vh", background: porcelain, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: sans, padding: "24px", textAlign: "center" }}>
-      <div style={{ fontFamily: serif, fontSize: "20px", color: ink, marginBottom: "8px" }}>Contract not available</div>
-      <div style={{ fontSize: "14px", color: faint, marginBottom: "18px" }}>This contract isn't assigned to your account.</div>
-      <a href="/portal" style={{ padding: "11px 20px", borderRadius: "9px", background: pine, color: "#fff", fontSize: "14px", fontWeight: "600", textDecoration: "none" }}>Back to your portal</a>
+    <div style={{ minHeight: "100vh", background: T.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: sans, padding: "24px", textAlign: "center" }}>
+      <div style={{ fontSize: "19px", fontWeight: 700, color: T.text, marginBottom: "8px" }}>Contract not available</div>
+      <div style={{ fontSize: "14px", color: T.faint, marginBottom: "18px" }}>This contract isn't assigned to your account.</div>
+      <a href="/portal" style={{ padding: "11px 20px", borderRadius: "9px", background: T.pine, color: "#fff", fontSize: "14px", fontWeight: 600, textDecoration: "none" }}>Back to your portal</a>
     </div>
   );
 
@@ -112,38 +109,43 @@ export default function ContractFolder() {
   const withTranscript = interviews.filter((iv) => iv.transcript);
 
   return (
-    <div style={{ minHeight: "100vh", background: porcelain, fontFamily: sans, paddingBottom: "60px" }}>
-      <link href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <div style={{ minHeight: "100vh", background: T.bg, fontFamily: sans, paddingBottom: "60px" }}>
+      <link href={FONT_LINK} rel="stylesheet" />
 
-      <div style={{ background: ink, padding: "18px 28px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontFamily: serif, fontSize: "22px", color: porcelain }}>InsightRide</div>
-        <a href="/portal" style={{ fontSize: "13px", color: "#B9C6BB", textDecoration: "none" }}>← All contracts</a>
+      <div style={{ background: T.ink, padding: "16px 28px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontWeight: 700, letterSpacing: "-0.02em", fontSize: "19px", color: "#EEF1EC" }}>InsightRide</div>
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <a href="/portal/settings" title="Settings" style={{ display: "flex", alignItems: "center", color: "#B9C6BB", textDecoration: "none" }}><Icon name="settings" size={18} /></a>
+          <a href="/portal" style={{ fontSize: "13px", color: "#B9C6BB", textDecoration: "none" }}>← All contracts</a>
+        </div>
       </div>
 
       <div style={{ maxWidth: "860px", margin: "0 auto", padding: "32px 24px" }}>
-        <div style={{ fontFamily: mono, fontSize: "10px", color: pine, letterSpacing: "0.1em", marginBottom: "8px" }}>{(contract.type || "RESEARCH").toUpperCase()}</div>
-        <h1 style={{ fontFamily: serif, fontSize: "24px", color: ink, margin: "0 0 24px", lineHeight: "1.35" }}>{contract.topic}</h1>
+        <div style={{ fontFamily: mono, fontSize: "10px", color: T.pine, letterSpacing: "0.1em", marginBottom: "8px" }}>{(contract.type || "RESEARCH").toUpperCase()}</div>
+        <h1 style={{ fontSize: "22px", fontWeight: 700, letterSpacing: "-0.01em", color: T.text, margin: "0 0 24px", lineHeight: "1.35" }}>{contract.topic}</h1>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px", marginBottom: "28px" }}>
-          <FolderCard icon="🎬" title="Videos" count={withVideo.length} onClick={() => setFolder("videos")} active={folder === "videos"} />
-          <FolderCard icon="📄" title="Transcripts" count={withTranscript.length} onClick={() => setFolder("transcripts")} active={folder === "transcripts"} />
-          <FolderCard icon="📊" title="Report" note={report ? "Ready to read" : "In preparation"} onClick={() => setFolder("report")} active={folder === "report"} />
-    <FolderCard icon="📈" title="Statistics" note="Explore the numbers" onClick={() => { window.location.href = `/portal/${contractId}/stats`; }} active={false} />
-    <FolderCard icon="💬" title="Ask the data" note="AI answers, exact counts" onClick={() => { window.location.href = `/portal/${contractId}/chat`; }} active={false} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "12px", marginBottom: "28px" }}>
+          <FolderCard T={T} icon="video" title="Videos" note={`${withVideo.length} item${withVideo.length === 1 ? "" : "s"}`} onClick={() => setFolder("videos")} active={folder === "videos"} />
+          <FolderCard T={T} icon="transcript" title="Transcripts" note={`${withTranscript.length} item${withTranscript.length === 1 ? "" : "s"}`} onClick={() => setFolder("transcripts")} active={folder === "transcripts"} />
+          <FolderCard T={T} icon="report" title="Report" note={report ? "Ready to read" : "In preparation"} onClick={() => setFolder("report")} active={folder === "report"} />
+          <FolderCard T={T} icon="stats" title="Statistics" onClick={() => { window.location.href = `/portal/${contractId}/stats`; }} active={false} />
+          <FolderCard T={T} icon="chat" title="Interview HelpBot" note="This HelpBot can answer questions regarding data from the interview" onClick={() => { window.location.href = `/portal/${contractId}/chat`; }} active={false} />
         </div>
 
-        {notice && <div style={{ padding: "11px 14px", borderRadius: "9px", background: "#F7E9E6", color: "#8C3A2B", fontSize: "13px", marginBottom: "16px" }}>{notice}</div>}
+        {notice && <div style={{ padding: "11px 14px", borderRadius: "9px", background: T.errBg, color: T.errText, fontSize: "13px", marginBottom: "16px" }}>{notice}</div>}
 
         {folder === "videos" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {withVideo.length === 0 && <div style={{ color: faint, fontSize: "14px" }}>No interview videos yet.</div>}
+            {withVideo.length === 0 && <div style={{ color: T.faint, fontSize: "14px" }}>No interview videos yet.</div>}
             {withVideo.map((iv) => (
-              <div key={iv.id} style={{ background: card, border: `1.5px solid ${line}`, borderRadius: "12px", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-                <div style={{ fontFamily: serif, fontSize: "15px", color: ink }}>Interview {iv.interview_number}</div>
+              <div key={iv.id} style={{ background: T.card, border: `1.5px solid ${T.line}`, borderRadius: "12px", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ fontSize: "14.5px", fontWeight: 600, color: T.text }}>Interview {iv.interview_number}</div>
                 <div style={{ display: "flex", gap: "8px" }}>
-                  <button onClick={() => playVideo(iv)} style={{ padding: "9px 16px", borderRadius: "8px", border: "none", background: pine, color: "#fff", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: sans }}>▶ Play</button>
+                  <button onClick={() => playVideo(iv)} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "9px 16px", borderRadius: "8px", border: "none", background: T.pine, color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: sans }}>
+                    <Icon name="video" size={14} /> Play
+                  </button>
                   {canDownload && (
-                    <button onClick={() => downloadVideo(iv)} style={{ padding: "9px 16px", borderRadius: "8px", border: `1.5px solid ${line}`, background: "#FBFCFA", color: text, fontSize: "13px", cursor: "pointer", fontFamily: sans }}>Download</button>
+                    <button onClick={() => downloadVideo(iv)} style={{ padding: "9px 16px", borderRadius: "8px", border: `1.5px solid ${T.line}`, background: T.inputBg, color: T.text, fontSize: "13px", cursor: "pointer", fontFamily: sans }}>Download</button>
                   )}
                 </div>
               </div>
@@ -153,25 +155,25 @@ export default function ContractFolder() {
 
         {folder === "transcripts" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {withTranscript.length === 0 && <div style={{ color: faint, fontSize: "14px" }}>Transcripts appear here once interviews are processed.</div>}
+            {withTranscript.length === 0 && <div style={{ color: T.faint, fontSize: "14px" }}>Transcripts appear here once interviews are processed.</div>}
             {withTranscript.map((iv) => (
-              <div key={iv.id} style={{ background: card, border: `1.5px solid ${line}`, borderRadius: "12px", padding: "16px 18px" }}>
+              <div key={iv.id} style={{ background: T.card, border: `1.5px solid ${T.line}`, borderRadius: "12px", padding: "16px 18px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-                  <div style={{ fontFamily: serif, fontSize: "15px", color: ink }}>Interview {iv.interview_number}</div>
-                  <button onClick={() => setOpenTranscript(openTranscript === iv.id ? null : iv.id)} style={{ padding: "8px 14px", borderRadius: "8px", border: `1.5px solid ${line}`, background: "#FBFCFA", color: text, fontSize: "13px", cursor: "pointer", fontFamily: sans }}>
+                  <div style={{ fontSize: "14.5px", fontWeight: 600, color: T.text }}>Interview {iv.interview_number}</div>
+                  <button onClick={() => setOpenTranscript(openTranscript === iv.id ? null : iv.id)} style={{ padding: "8px 14px", borderRadius: "8px", border: `1.5px solid ${T.line}`, background: T.inputBg, color: T.text, fontSize: "13px", cursor: "pointer", fontFamily: sans }}>
                     {openTranscript === iv.id ? "Close" : "Read"}
                   </button>
                 </div>
                 {openTranscript === iv.id && (
                   <div style={{ marginTop: "14px" }}>
                     {iv.ai_summary && (
-                      <div style={{ background: "#F1F6F1", border: `1px solid #D4E2D6`, borderRadius: "10px", padding: "14px", marginBottom: "12px" }}>
-                        <div style={{ fontFamily: mono, fontSize: "10px", color: pine, letterSpacing: "0.1em", marginBottom: "6px" }}>SUMMARY</div>
-                        <div style={{ fontSize: "14px", color: text, lineHeight: "1.7" }}>{iv.ai_summary}</div>
+                      <div style={{ background: T.pineSoft, border: `1px solid ${T.line}`, borderRadius: "10px", padding: "14px", marginBottom: "12px" }}>
+                        <div style={{ fontFamily: mono, fontSize: "10px", color: T.pine, letterSpacing: "0.1em", marginBottom: "6px" }}>SUMMARY</div>
+                        <div style={{ fontSize: "14px", color: T.text, lineHeight: "1.7" }}>{iv.ai_summary}</div>
                       </div>
                     )}
-                    <div style={{ fontFamily: mono, fontSize: "10px", color: faint, letterSpacing: "0.1em", marginBottom: "6px" }}>FULL TRANSCRIPT</div>
-                    <div style={{ fontSize: "13.5px", color: text, lineHeight: "1.8", whiteSpace: "pre-wrap", maxHeight: "420px", overflowY: "auto", paddingRight: "6px" }}>{iv.transcript}</div>
+                    <div style={{ fontFamily: mono, fontSize: "10px", color: T.faint, letterSpacing: "0.1em", marginBottom: "6px" }}>FULL TRANSCRIPT</div>
+                    <div style={{ fontSize: "13.5px", color: T.text, lineHeight: "1.8", whiteSpace: "pre-wrap", maxHeight: "420px", overflowY: "auto", paddingRight: "6px" }}>{iv.transcript}</div>
                   </div>
                 )}
               </div>
@@ -180,36 +182,36 @@ export default function ContractFolder() {
         )}
 
         {folder === "report" && !report && (
-          <div style={{ background: card, border: `1.5px solid ${line}`, borderRadius: "14px", padding: "34px", textAlign: "center" }}>
-            <div style={{ fontSize: "26px", marginBottom: "10px" }}>📊</div>
-            <div style={{ fontFamily: serif, fontSize: "18px", color: ink, marginBottom: "8px" }}>Your report is being prepared</div>
-            <div style={{ fontSize: "14px", color: faint, lineHeight: "1.7", maxWidth: "420px", margin: "0 auto" }}>
+          <div style={{ background: T.card, border: `1.5px solid ${T.line}`, borderRadius: "14px", padding: "34px", textAlign: "center" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: "12px", color: T.pine }}><Icon name="report" size={30} /></div>
+            <div style={{ fontSize: "17px", fontWeight: 700, color: T.text, marginBottom: "8px" }}>Your report is being prepared</div>
+            <div style={{ fontSize: "14px", color: T.faint, lineHeight: "1.7", maxWidth: "420px", margin: "0 auto" }}>
               Once enough interviews are completed and the findings are reviewed, your full report will appear here.
             </div>
           </div>
         )}
 
         {folder === "report" && report && (
-          <div style={{ background: card, border: `1.5px solid ${line}`, borderRadius: "14px", padding: "30px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px", marginBottom: "18px", borderBottom: `1px solid ${line}`, paddingBottom: "16px" }}>
+          <div style={{ background: T.card, border: `1.5px solid ${T.line}`, borderRadius: "14px", padding: "30px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px", marginBottom: "18px", borderBottom: `1px solid ${T.line}`, paddingBottom: "16px" }}>
               <div>
-                <div style={{ fontFamily: mono, fontSize: "10px", color: pine, letterSpacing: "0.1em", marginBottom: "6px" }}>FINAL REPORT</div>
-                <div style={{ fontSize: "12.5px", color: faint }}>Generated {new Date(report.generated_at).toLocaleDateString()} · based on {report.interviews_included} interviews</div>
+                <div style={{ fontFamily: mono, fontSize: "10px", color: T.pine, letterSpacing: "0.1em", marginBottom: "6px" }}>FINAL REPORT</div>
+                <div style={{ fontSize: "12.5px", color: T.faint }}>Generated {new Date(report.generated_at).toLocaleDateString()} · based on {report.interviews_included} interviews</div>
               </div>
-              <button onClick={downloadPdf} style={{ padding: "10px 18px", borderRadius: "9px", border: "none", background: pine, color: "#fff", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: sans }}>
+              <button onClick={downloadPdf} style={{ padding: "10px 18px", borderRadius: "9px", border: "none", background: T.pine, color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: sans }}>
                 Download PDF
               </button>
             </div>
-            <div style={{ fontSize: "14.5px", color: text, lineHeight: "1.85", whiteSpace: "pre-wrap", fontFamily: "Georgia, serif" }}>{report.content}</div>
+            <div style={{ fontSize: "14.5px", color: T.text, lineHeight: "1.85", whiteSpace: "pre-wrap" }}>{report.content}</div>
           </div>
         )}
       </div>
 
       {player && (
-        <div onClick={() => setPlayer(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,31,24,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", zIndex: 50 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: ink, borderRadius: "14px", padding: "16px", width: "100%", maxWidth: "760px" }}>
+        <div onClick={() => setPlayer(null)} style={{ position: "fixed", inset: 0, background: "rgba(10,16,12,0.78)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: T.ink, borderRadius: "14px", padding: "16px", width: "100%", maxWidth: "760px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-              <span style={{ fontFamily: serif, fontSize: "15px", color: porcelain }}>Interview {player.number}</span>
+              <span style={{ fontSize: "14px", fontWeight: 600, color: "#EEF1EC" }}>Interview {player.number}</span>
               <button onClick={() => setPlayer(null)} style={{ background: "none", border: "none", color: "#B9C6BB", fontSize: "14px", cursor: "pointer", fontFamily: sans }}>Close ✕</button>
             </div>
             <video src={player.url} controls autoPlay style={{ width: "100%", borderRadius: "8px", background: "#000" }} />
