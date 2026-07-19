@@ -20,6 +20,14 @@ function fmtShare(count, total) {
   return `${Math.round((count / total) * 1000) / 10}% (${count} of ${total})`;
 }
 
+function formatTranscript(r) {
+  const utt = r.diarized_transcript;
+  if (Array.isArray(utt) && utt.length > 0) {
+    return utt.map((u) => `Speaker ${u.speaker} (t=${u.start != null ? Math.floor(u.start / 1000) : 0}s): ${u.text}`).join("\n");
+  }
+  return r.transcript || "";
+}
+
 async function claude(system, userContent, tool) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -47,7 +55,6 @@ export async function POST(request) {
   const admin = db();
   let logBase = null;
   try {
-    // Auth
     const token = (request.headers.get("authorization") || "").replace("Bearer ", "");
     if (!token) return Response.json({ error: "Not signed in" }, { status: 401 });
     const { data: caller } = await admin.auth.getUser(token);
@@ -58,15 +65,14 @@ export async function POST(request) {
     if (!contractId || !question?.trim()) return Response.json({ error: "Missing question" }, { status: 400 });
     logBase = { contract_id: contractId, client_id: userId, question: question.trim() };
 
-    // Access + allowance
     const { data: prof } = await admin.from("profiles").select("role").eq("id", userId).single();
     const isAdminUser = prof?.role === "admin";
     let allowance = 50;
     if (!isAdminUser) {
-     const { data: link } = await admin.from("client_contracts").select("prompt_allowance, access_revoked, chat_paused")
+      const { data: link } = await admin.from("client_contracts").select("prompt_allowance, access_revoked, chat_paused")
         .eq("client_id", userId).eq("contract_id", contractId).single();
       if (!link || link.access_revoked) return Response.json({ error: "This contract isn't assigned to your account." }, { status: 403 });
-      if (link.chat_paused) return Response.json({ paused: true, answer: "Your questions for this contract are paused after several off-topic prompts. Contact InsightRide to restore access." });
+      if (link.chat_paused) return Response.json({ paused: true, answer: "Your questions for this contract are currently paused. Contact InsightRide to restore access." });
       allowance = link.prompt_allowance ?? 50;
     }
     const { count: used } = await admin.from("chat_logs").select("id", { count: "exact", head: true })
@@ -75,32 +81,30 @@ export async function POST(request) {
       return Response.json({ limitReached: true, used, allowance });
     }
 
-    // Load data
     const { data: contract } = await admin.from("contracts").select("topic, guide, extraction_schema").eq("id", contractId).single();
     const schema = Array.isArray(contract?.extraction_schema) ? contract.extraction_schema : [];
     const { data: ivs } = await admin.from("completed_interviews")
-      .select("id, interview_number, demographics, structured_data, transcript, city, neighbourhood")
+      .select("id, interview_number, demographics, structured_data, transcript, diarized_transcript, city, neighbourhood")
       .eq("contract_id", contractId).eq("status", "summarized");
     const rows = (ivs || []).filter((r) => r.structured_data && !(r.structured_data.quality?.flagged_for_exclusion));
-    if (rows.length === 0) return Response.json({ answer: "There are no processed interviews in this contract yet, so I can't answer questions about the data." , used, allowance });
+    if (rows.length === 0) return Response.json({ answer: "There are no processed interviews in this contract yet, so I can't answer questions about the data.", used, allowance });
 
     let totalCost = 0;
 
-    // Phase 1: classify + plan
+    // Plan (no relevance gate — every question is answered)
     const planTool = {
       name: "plan_answer",
-      description: "Plan how to answer a research question about this contract's interviews.",
+      description: "Plan how to answer a question about this contract's interviews.",
       input_schema: {
         type: "object",
         properties: {
-          relevant: { type: "boolean", description: "False ONLY if clearly unrelated to this research contract (e.g. sports scores, personal advice). Be very lenient - anything plausibly about the research, its topic, respondents, or findings is relevant." },
-          mode: { type: "string", enum: ["stat", "qualitative"], description: "stat = wants a count/percentage/comparison. qualitative = wants what people said, themes, opinions." },
-          filters: { type: "array", items: { type: "object", properties: { demo: { type: "string", enum: ["ageRange", "gender", "ethnicity", "profession", "city", "neighbourhood"] }, values: { type: "array", items: { type: "string" } } }, required: ["demo", "values"] }, description: "Demographic/location filters implied by the question, mapped EXACTLY to the provided option values (e.g. 'over 45' -> ageRange values 45-54, 55-64, 65+). Empty array if the question is about all respondents." },
-          existing_field_key: { type: ["string", "null"], description: "If an existing field answers the question, its key. Else null." },
-          new_field: { type: ["object", "null"], properties: { key: { type: "string" }, label: { type: "string" }, type: { type: "string", enum: ["boolean", "sentiment"] }, description: { type: "string", description: "Precise yes-if instruction for extraction, covering implicit/slang phrasings." } }, description: "If no existing field fits a stat question, define one. Null otherwise." },
+          mode: { type: "string", enum: ["stat", "qualitative"], description: "stat = wants a count/percentage/comparison. qualitative = wants what people said, themes, opinions, or where/whether something was said." },
+          filters: { type: "array", items: { type: "object", properties: { demo: { type: "string", enum: ["ageRange", "gender", "ethnicity", "profession", "city", "neighbourhood"] }, values: { type: "array", items: { type: "string" } } }, required: ["demo", "values"] }, description: "Demographic/location filters implied by the question, mapped EXACTLY to the provided option values (e.g. 'over 45' -> ageRange 45-54, 55-64, 65+). Empty if about all respondents." },
+          existing_field_key: { type: ["string", "null"], description: "If an existing field answers a stat question, its key. Else null." },
+          new_field: { type: ["object", "null"], properties: { key: { type: "string" }, label: { type: "string" }, type: { type: "string", enum: ["boolean", "sentiment"] }, description: { type: "string", description: "Precise yes-if instruction for extraction, covering implicit/slang phrasings." } }, description: "For a stat question no existing field fits, define one. Null otherwise." },
           hit_definition: { type: "string", description: "One phrase for what counts as a 'hit', e.g. 'said cost was a barrier'." }
         },
-        required: ["relevant", "mode", "filters", "hit_definition"],
+        required: ["mode", "filters", "hit_definition"],
       },
     };
     const fieldList = schema.map((f) => `- ${f.key} (${f.type}): ${f.label}${f.description ? " — " + f.description : ""}`).join("\n") || "(none)";
@@ -112,18 +116,7 @@ export async function POST(request) {
     totalCost += plan1.cost;
     const plan = plan1.out;
 
-    if (!plan.relevant) {
-      const { count: flags } = await admin.from("chat_logs").select("id", { count: "exact", head: true })
-        .eq("client_id", userId).eq("contract_id", contractId).eq("status", "flagged");
-await admin.from("chat_logs").insert([{ ...logBase, answer: null, status: "flagged", cost_estimate: totalCost }]);
-      const newFlags = (flags || 0) + 1;
-      if (!isAdminUser && newFlags > 0 && newFlags % 3 === 0) {
-        await admin.from("client_contracts").update({ chat_paused: true }).eq("client_id", userId).eq("contract_id", contractId);
-      }      return Response.json({ flagged: true, flagCount: (flags || 0) + 1, used, allowance,
-        answer: "That question doesn't seem related to this research contract, so it hasn't used any of your prompts. I can answer questions about the interviews, respondents, and findings in this study." });
-    }
-
-    // Apply exact demographic filters in code
+    // Exact demographic filters in code
     let filtered = rows;
     const filterDescs = [];
     for (const f of plan.filters || []) {
@@ -140,16 +133,28 @@ await admin.from("chat_logs").insert([{ ...logBase, answer: null, status: "flagg
     let answer = "", evidence = [];
 
     if (plan.mode === "qualitative") {
-      const transcripts = filtered.map((r) => `--- Interview ${r.interview_number} ---\n${(r.transcript || "").slice(0, 6000)}`).join("\n\n");
+      const qualTool = {
+        name: "answer_question",
+        description: "Answer from transcripts with cited evidence.",
+        input_schema: {
+          type: "object",
+          properties: {
+            answer: { type: "string", description: "The answer, citing interview numbers like (Interview 3). Never invent percentages; you may say 'X of the matching interviews' only if you name which ones. If the transcripts don't address it, say so plainly." },
+            evidence: { type: "array", items: { type: "object", properties: { interview_number: { type: "integer" }, quote: { type: "string", description: "Short verbatim quote from that interview supporting the answer." }, approx_timestamp_seconds: { type: ["number", "null"], description: "From the (t=...s) markers." } }, required: ["interview_number", "quote"] } },
+          },
+          required: ["answer", "evidence"],
+        },
+      };
+      const transcripts = filtered.map((r) => `--- Interview ${r.interview_number} ---\n${formatTranscript(r).slice(0, 7000)}`).join("\n\n");
       const q = await claude(
-        `You answer a client's question using ONLY the interview transcripts provided. Quote sparingly and always cite interview numbers like (Interview 3). NEVER state a percentage or invented count; you may say "X of the ${filtered.length} matching interviews" only if you list which ones. If the transcripts don't address it, say so plainly.`,
-        `Question: "${question.trim()}"\nMatching interviews (${scope}):\n\n${transcripts}`,
-        null
+        `You answer a client's question using ONLY the interview transcripts provided. Cite interview numbers. Include each supporting verbatim quote in evidence with its timestamp from the (t=...s) markers. If nothing addresses the question, say so and return empty evidence.`,
+        `Question: "${question.trim()}"\nMatching interviews (${scope}):\n\n${transcripts}\n\nCall answer_question.`,
+        qualTool
       );
       totalCost += q.cost;
-      answer = q.out;
+      answer = q.out.answer;
+      evidence = (q.out.evidence || []).map((e) => ({ interview_number: e.interview_number, quote: e.quote, timestamp: e.approx_timestamp_seconds ?? null }));
     } else {
-      // stat mode: existing field, or extract a new one
       let key = plan.existing_field_key;
       let fieldDef = schema.find((f) => f.key === key) || null;
 
@@ -164,13 +169,12 @@ await admin.from("chat_logs").insert([{ ...logBase, answer: null, status: "flagg
             evidence_quote: { type: ["string", "null"] }, approx_timestamp_seconds: { type: ["number", "null"] },
             confidence: { type: "string", enum: ["high", "medium", "low"] } }, required: ["interview_number", "value", "mentioned", "confidence"] } } }, required: ["labels"] },
         };
-        const transcripts = filtered.map((r) => `--- Interview ${r.interview_number} ---\n${(r.transcript || "").slice(0, 6000)}`).join("\n\n");
+        const transcripts = filtered.map((r) => `--- Interview ${r.interview_number} ---\n${formatTranscript(r).slice(0, 7000)}`).join("\n\n");
         const ext = await claude(
-          `Extract ONE field from each interview. Field: ${fieldDef.key} (${fieldDef.type}). Definition: ${fieldDef.description}. Rules: never fabricate — if not addressed, value null and mentioned false ("didn't come up" is distinct from an explicit no). ${fieldDef.type === "sentiment" ? "Values: very_negative, negative, neutral, positive, very_positive." : "Values: true, false, or null."} Include a short verbatim evidence_quote when mentioned. Low confidence beats guessing. Call save_labels with one entry per interview.`,
+          `Extract ONE field from each interview. Field: ${fieldDef.key} (${fieldDef.type}). Definition: ${fieldDef.description}. Rules: never fabricate — if not addressed, value null and mentioned false ("didn't come up" is distinct from an explicit no). ${fieldDef.type === "sentiment" ? "Values: very_negative, negative, neutral, positive, very_positive." : "Values: true, false, or null."} Include a short verbatim evidence_quote with timestamp from (t=...s) markers when mentioned. Low confidence beats guessing. Call save_labels with one entry per interview.`,
           transcripts, extractTool
         );
         totalCost += ext.cost;
-        // Cache the labels + register the field
         for (const lab of ext.out.labels || []) {
           const row = filtered.find((r) => r.interview_number === lab.interview_number);
           if (!row) continue;
@@ -205,6 +209,6 @@ await admin.from("chat_logs").insert([{ ...logBase, answer: null, status: "flagg
     return Response.json({ answer, evidence, used: (used || 0) + 1, allowance });
   } catch (e) {
     try { if (logBase) await db().from("chat_logs").insert([{ ...logBase, status: "failed", cost_estimate: 0 }]); } catch {}
-    return Response.json({ error: "Something went wrong answering that — it hasn't used one of your prompts. Please try again." , detail: e.message }, { status: 500 });
+    return Response.json({ error: "Something went wrong answering that — it hasn't used one of your prompts. Please try again.", detail: e.message }, { status: 500 });
   }
 }
