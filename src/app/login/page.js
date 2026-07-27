@@ -4,8 +4,8 @@ import { supabase } from "../../lib/supabase";
 
 const ink = "#0F1F18", pine = "#1B6B4A", pineDark = "#14523A", porcelain = "#EEF1EC",
   card = "#FFFFFF", line = "#D9DED7", text = "#1A241E", faint = "#63705F";
-const serif = "'Young Serif', Georgia, serif";
-const sans = "'Outfit', sans-serif";
+const serif = "'Inter', -apple-system, 'Segoe UI', sans-serif";
+const sans = "'Inter', -apple-system, 'Segoe UI', sans-serif";
 const mono = "'IBM Plex Mono', ui-monospace, monospace";
 
 function youtubeEmbed(url) {
@@ -75,12 +75,12 @@ export default function LoginPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: porcelain, fontFamily: sans, display: "flex", flexDirection: "column" }}>
-      <link href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
       <div style={{ flex: 1, display: "flex", flexWrap: "wrap" }}>
         {/* Left: company updates */}
         <div style={{ flex: "1 1 380px", background: ink, color: porcelain, padding: "44px 44px 36px", display: "flex", flexDirection: "column", minHeight: "320px" }}>
-          <div style={{ fontFamily: serif, fontSize: "30px", letterSpacing: "0.01em", marginBottom: "28px" }}>InsightRide</div>
+          <div style={{ fontFamily: serif, fontWeight: 800, fontSize: "26px", letterSpacing: "-0.02em", marginBottom: "28px" }}>InsightRide</div>
 
           <div style={{ fontFamily: mono, fontSize: "11px", color: "#7FA893", letterSpacing: "0.1em", marginBottom: "14px" }}>UPDATES</div>
           <div style={{ flex: 1, overflowY: "auto", maxHeight: "62vh", paddingRight: "6px" }}>
