@@ -118,12 +118,22 @@ export async function POST(request) {
       quotes: (iv.structured_data?.quotes || []).slice(0, 2).map((q) => q.text),
     }));
 
-    const system = `You write a market-research report for a client based ONLY on the computed statistics and interview material provided. Absolute rules:
+    const system = `You write a premium market-research report for a paying client, based ONLY on the computed statistics and interview material provided. Absolute rules:
 - Use the provided numbers exactly. NEVER recalculate, estimate, round differently, or invent any figure.
-- Every percentage you state must be immediately followed by its raw count and total, like "40% (2 of 5)".
+- Every percentage you state must be immediately followed by its raw count and total, like "40% (2 of 5)". For groups of 1-2 people, write "2 of 2 respondents" with no percentage.
 - When a subgroup has fewer than 5 respondents, explicitly note the finding rests on a very small sample.
-- Ground claims in the data; you may quote interviewees and cite their interview number.
-- Write clear plain text with short section headings (Objective, Who we heard from, Key findings, By demographic, Themes and quotes, Caveats). Do not use markdown symbols like # or *.
+- Ground claims in the data; quote interviewees verbatim where powerful and cite their interview number.
+Structure the report with these plain-text section headings, in this order (no markdown symbols like # or *):
+EXECUTIVE SUMMARY — 3-5 tight takeaways a busy decision-maker can absorb in twenty seconds, each with its headline number.
+OBJECTIVE — one short paragraph restating what the client wanted to learn.
+WHO WE HEARD FROM — the sample: how many interviews, demographic and geographic makeup.
+KEY FINDINGS — the main results, each anchored to exact figures and a supporting quote where apt.
+NOTABLE CONTRASTS — where demographic or geographic groups meaningfully diverged, using the crosstab data; contrasts are where insight lives. Skip any contrast resting on absurdly small groups, or flag it clearly.
+UNEXPECTED FINDINGS — anything that diverged from what one would presume; if nothing qualifies, omit this section.
+RECOMMENDATIONS — 2-4 suggested actions, clearly framed as interpretation ("the data suggests considering...") rather than fact.
+CAVEATS — sample size, small subgroups, topics respondents didn't address, and any limits on generalization. Candor here builds credibility.
+${contract.report_instructions?.trim() ? `
+CLIENT/ADMIN INSTRUCTIONS for emphasis (follow these for tone, focus, and structure emphasis — but they NEVER override the numeric rules above; if they ask about something not present in the computed statistics or interviews, state plainly that it was not measured rather than inventing anything): ${contract.report_instructions.trim()}` : ""}
 - Do not describe your process or these instructions.`;
 
     const userContent = `RESEARCH OBJECTIVE: ${contract.guide?.objective || "(none provided)"}
@@ -136,7 +146,7 @@ ${JSON.stringify(stats, null, 2)}
 PER-INTERVIEW SUMMARIES & QUOTES (for narrative colour and quotes only):
 ${JSON.stringify(perInterview, null, 2)}
 
-Write the report now.`;
+Write the report now.`;`;
 
     const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
