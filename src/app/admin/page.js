@@ -90,7 +90,16 @@ export default function AdminDashboard() {
     if (data) setContracts(data);
     setLoading(false);
   }
-
+const [waiting, setWaiting] = useState(0);
+  useEffect(() => {
+    (async () => {
+      const [{ count: reqs }, { count: sup }] = await Promise.all([
+        supabase.from("prompt_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
+        supabase.from("support_messages").select("id", { count: "exact", head: true }).eq("status", "open"),
+      ]);
+      setWaiting((reqs || 0) + (sup || 0));
+    })();
+  }, []);
   async function loadInterviewers() {
     const { data } = await supabase.from("interviewer_locations").select("*")
       .gte("updated_at", new Date(Date.now() - 10 * 60 * 1000).toISOString());
@@ -190,7 +199,11 @@ export default function AdminDashboard() {
             <button key={v} onClick={() => setTab(v)} style={{ padding: "14px 20px", background: "none", border: "none", borderBottom: tab === v ? "2px solid #D4A017" : "2px solid transparent", color: tab === v ? "#D4A017" : "#888880", fontSize: "14px", fontWeight: tab === v ? "600" : "400", cursor: "pointer", fontFamily: F, whiteSpace: "nowrap" }}>{lbl}</button>
           ))}
         </div>
-
+<div style={{ display: "flex", gap: "8px", padding: "12px 24px", borderBottom: "1px solid #1A1A18", overflowX: "auto" }}>
+        {[["/admin/upload", "Upload & process"], ["/admin/clients", "Clients"], ["/admin/chatlogs", "Chat logs"], ["/admin/inbox", waiting > 0 ? `Inbox (${waiting})` : "Inbox"], ["/admin/updates", "Updates"], ["/admin/content", "Login content"]].map(([href, lbl]) => (
+          <a key={href} href={href} style={{ padding: "8px 14px", borderRadius: "8px", border: lbl.startsWith("Inbox (") ? "1px solid #4A3A20" : "1px solid #2A2A28", background: lbl.startsWith("Inbox (") ? "#2A2520" : "#1A1A18", color: lbl.startsWith("Inbox (") ? "#D4A017" : "#A8A8A4", fontSize: "12.5px", fontWeight: "500", textDecoration: "none", whiteSpace: "nowrap" }}>{lbl}</a>
+        ))}
+      </div>
         <div style={{ padding: "20px 24px", maxWidth: "800px" }}>
           {tab === "contracts" && (
             <div>
