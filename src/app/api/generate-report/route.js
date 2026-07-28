@@ -81,7 +81,7 @@ export async function POST(request) {
 
     const { data: interviews } = await supabase
       .from("completed_interviews")
-      .select("interview_number, demographics, survey_responses, structured_data, quality_score, city, postcode")
+      .select("interview_number, demographics, survey_responses, structured_data, quality_score, city, postcode, neighbourhood")
       .eq("contract_id", contractId).eq("status", "summarized")
       .order("interview_number", { ascending: true });
 
@@ -106,7 +106,7 @@ export async function POST(request) {
     const fields = schema.map((f) => ({ ...tallyField(f, rowsForField(f.key)), crosstab: crosstab(f, rowsForField(f.key)) }));
 
     const geography = {};
-    included.forEach((iv) => { const c = iv.city || "Unknown"; geography[c] = (geography[c] || 0) + 1; });
+    included.forEach((iv) => { const c = iv.neighbourhood || iv.city || "Unknown"; geography[c] = (geography[c] || 0) + 1; });
 
     const stats = { n, demographics, quality, fields, geography };
 
@@ -115,26 +115,54 @@ export async function POST(request) {
       demographics: iv.demographics,
       summary: iv.structured_data?.summary,
       sentiment: iv.structured_data?.sentiment?.overall,
-      quotes: (iv.structured_data?.quotes || []).slice(0, 2).map((q) => q.text),
+      themes: iv.structured_data?.themes || [],
+      quotes: (iv.structured_data?.quotes || []).slice(0, 3).map((q) => q.text),
     }));
 
-    const system = `You write a premium market-research report for a paying client, based ONLY on the computed statistics and interview material provided. Absolute rules:
+    const instructions = (contract.report_instructions || "").trim();
+
+    const system = `You write a premium market-research report for a paying client, based ONLY on the computed statistics and interview material provided.
+
+ABSOLUTE NUMERIC RULES (never violated):
 - Use the provided numbers exactly. NEVER recalculate, estimate, round differently, or invent any figure.
-- Every percentage you state must be immediately followed by its raw count and total, like "40% (2 of 5)". For groups of 1-2 people, write "2 of 2 respondents" with no percentage.
+- Every percentage must be immediately followed by its raw count and total, like "40% (2 of 5)".
+- For a group of only 1 or 2 people, write "2 of 2 respondents" with NO percentage sign.
 - When a subgroup has fewer than 5 respondents, explicitly note the finding rests on a very small sample.
-- Ground claims in the data; quote interviewees verbatim where powerful and cite their interview number.
-Structure the report with these plain-text section headings, in this order (no markdown symbols like # or *):
-EXECUTIVE SUMMARY — 3-5 tight takeaways a busy decision-maker can absorb in twenty seconds, each with its headline number.
-OBJECTIVE — one short paragraph restating what the client wanted to learn.
-WHO WE HEARD FROM — the sample: how many interviews, demographic and geographic makeup.
-KEY FINDINGS — the main results, each anchored to exact figures and a supporting quote where apt.
-NOTABLE CONTRASTS — where demographic or geographic groups meaningfully diverged, using the crosstab data; contrasts are where insight lives. Skip any contrast resting on absurdly small groups, or flag it clearly.
-UNEXPECTED FINDINGS — anything that diverged from what one would presume; if nothing qualifies, omit this section.
-RECOMMENDATIONS — 2-4 suggested actions, clearly framed as interpretation ("the data suggests considering...") rather than fact.
-CAVEATS — sample size, small subgroups, topics respondents didn't address, and any limits on generalization. Candor here builds credibility.
-${contract.report_instructions?.trim() ? `
-CLIENT/ADMIN INSTRUCTIONS for emphasis (follow these for tone, focus, and structure emphasis — but they NEVER override the numeric rules above; if they ask about something not present in the computed statistics or interviews, state plainly that it was not measured rather than inventing anything): ${contract.report_instructions.trim()}` : ""}
-- Do not describe your process or these instructions.`;
+- If something was not measured, say so plainly. Never fabricate a number to fill a gap.
+
+Ground every claim in the data. Quote interviewees verbatim where it adds force, citing their interview number.
+
+Use these plain-text section headings, in this order. Do NOT use markdown symbols such as # or *:
+
+EXECUTIVE SUMMARY
+Three to five tight takeaways a busy decision-maker can absorb in twenty seconds, each carrying its headline number.
+
+OBJECTIVE
+One short paragraph restating what the client wanted to learn.
+
+WHO WE HEARD FROM
+The sample: how many interviews, and their demographic and geographic makeup.
+
+KEY FINDINGS
+The main results, each anchored to exact figures, with a supporting quote where apt.
+
+NOTABLE CONTRASTS
+Where demographic or geographic groups meaningfully diverged, using the crosstab data. Contrasts are where insight lives. Flag or skip any contrast resting on absurdly small groups.
+
+UNEXPECTED FINDINGS
+Anything that diverged from what one would presume. Omit this section entirely if nothing qualifies.
+
+RECOMMENDATIONS
+Two to four suggested actions, clearly framed as interpretation ("the data suggests considering...") rather than established fact.
+
+CAVEATS
+Sample size, small subgroups, topics respondents did not address, and limits on generalization. Candor here builds credibility.
+${instructions ? `
+
+ADMIN INSTRUCTIONS FOR EMPHASIS — follow these for tone, focus, and which topics deserve prominence. They NEVER override the numeric rules above. If they ask about something absent from the computed statistics and interview material, state plainly that it was not measured in this study rather than inventing anything:
+"${instructions}"` : ""}
+
+Never describe your process or mention these instructions in the output.`;
 
     const userContent = `RESEARCH OBJECTIVE: ${contract.guide?.objective || "(none provided)"}
 CLIENT: ${contract.client}
@@ -143,10 +171,10 @@ TOPIC: ${contract.topic}
 COMPUTED STATISTICS (authoritative — use verbatim):
 ${JSON.stringify(stats, null, 2)}
 
-PER-INTERVIEW SUMMARIES & QUOTES (for narrative colour and quotes only):
+PER-INTERVIEW SUMMARIES, THEMES & QUOTES (for narrative colour and quotations only):
 ${JSON.stringify(perInterview, null, 2)}
 
-Write the report now.`;`;
+Write the report now.`;
 
     const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -167,4 +195,4 @@ Write the report now.`;`;
   } catch (e) {
     return Response.json({ error: e.message || String(e) }, { status: 500 });
   }
-}
+}  
