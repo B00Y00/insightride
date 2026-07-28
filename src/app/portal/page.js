@@ -39,6 +39,7 @@ export default function ClientPortal() {
         <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
           <span style={{ fontSize: "13px", color: "#B9C6BB" }}>{profile?.full_name || profile?.email}</span>
           {profile?.role === "admin" && <a href="/admin" style={{ fontSize: "13px", color: "#7FA893", textDecoration: "none" }}>Admin dashboard</a>}
+          <a href="/portal/support" style={{ fontSize: "13px", color: "#B9C6BB", textDecoration: "none" }}>Support</a>
           <a href="/portal/settings" title="Settings" style={{ display: "flex", alignItems: "center", color: "#B9C6BB", textDecoration: "none" }}><Icon name="settings" size={18} /></a>
           <button onClick={signOut} style={{ padding: "8px 14px", borderRadius: "8px", border: "1px solid #2E4F3F", background: "transparent", color: "#B9C6BB", fontSize: "13px", cursor: "pointer", fontFamily: sans }}>Sign out</button>
         </div>
