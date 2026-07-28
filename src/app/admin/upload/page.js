@@ -40,8 +40,25 @@ export default function UploadInterviewPage() {
   const [showReport, setShowReport] = useState(false);
 const [editText, setEditText] = useState(null);
   const [approveBusy, setApproveBusy] = useState(false);
+  const [instructions, setInstructions] = useState("");
+  const [instrBusy, setInstrBusy] = useState(false);
+
   useEffect(() => {
-    supabase.from("contracts").select("id, client, topic, report_threshold").order("created_at", { ascending: false }).then(({ data }) => { if (data) setContracts(data); });
+    const c = contracts.find((x) => x.id === contractId);
+    setInstructions(c?.report_instructions || "");
+  }, [contractId, contracts]);
+
+  async function saveInstructions() {
+    if (!contractId) return;
+    setInstrBusy(true);
+    const { error } = await supabase.from("contracts").update({ report_instructions: instructions }).eq("id", contractId);
+    setMessage(error ? { type: "error", text: "Couldn't save instructions: " + error.message } : { type: "ok", text: "Report instructions saved — they'll shape the next generated report." });
+    const { data } = await supabase.from("contracts").select("id, client, topic, report_threshold, report_instructions").order("created_at", { ascending: false });
+    if (data) setContracts(data);
+    setInstrBusy(false);
+  }
+  useEffect(() => {
+    supabase.from("contracts").select("id, client, topic, report_threshold, report_instructions").order("created_at", { ascending: false }).then(({ data }) => { if (data) setContracts(data); });
   }, []);
 
   async function loadInterviews(cid) {
@@ -268,6 +285,11 @@ async function saveReportEdits() {
                 <div style={{ fontSize: "12px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "10px" }}>Contract report</div>
                 <div style={{ fontSize: "13px", color: "#A8A8A4", marginBottom: "12px" }}>
                   {summarizedCount} of {threshold} interviews analysed{summarizedCount >= threshold && threshold > 0 ? " — threshold reached." : threshold > 0 ? ` (you can still generate now for testing).` : "."}
+                </div>
+                <div style={{ marginBottom: "14px" }}>
+                  <div style={{ fontSize: "11px", fontWeight: "600", color: "#888880", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "6px" }}>Report instructions (optional)</div>
+                  <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="Steer the report's emphasis — e.g. 'Pay particular attention to wait times; give pricing complaints their own section; keep it concise for an executive audience.' Note: instructions shape the writing, but statistics only come from measured data." style={{ width: "100%", minHeight: "70px", padding: "10px 12px", borderRadius: "8px", border: "1px solid #3A3A38", background: "#0E0E0C", color: "#E8E8E4", fontSize: "13px", fontFamily: F, boxSizing: "border-box", outline: "none", resize: "vertical", lineHeight: "1.6" }} />
+                  <button onClick={saveInstructions} disabled={instrBusy} style={{ marginTop: "6px", padding: "8px 14px", borderRadius: "8px", border: "1px solid #3A3A38", background: "#1E1E1C", color: "#D4A017", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: F }}>{instrBusy ? "Saving…" : "Save instructions"}</button>
                 </div>
                 <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
                   <button onClick={generateReport} disabled={reportBusy || summarizedCount === 0} style={{ padding: "12px 18px", borderRadius: "10px", border: "none", background: reportBusy || summarizedCount === 0 ? "#3A3A38" : "#D4A017", color: reportBusy || summarizedCount === 0 ? "#888880" : "#0E0E0C", fontSize: "14px", fontWeight: "700", cursor: reportBusy || summarizedCount === 0 ? "not-allowed" : "pointer", fontFamily: F }}>
