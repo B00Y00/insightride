@@ -11,7 +11,6 @@ export async function POST(request) {
   try {
     const admin = getAdminClient();
 
-    // 1. Verify the caller is a signed-in admin
     const authHeader = request.headers.get("authorization") || "";
     const token = authHeader.replace("Bearer ", "");
     if (!token) return Response.json({ error: "Not signed in" }, { status: 401 });
@@ -22,10 +21,11 @@ export async function POST(request) {
       return Response.json({ error: "Admin access only" }, { status: 403 });
     }
 
-    // 2. Create the client account
-    const { email, tempPassword, fullName } = await request.json();
+    const { email, tempPassword, fullName, role, username } = await request.json();
+    const accountRole = role === "interviewer" ? "interviewer" : "client";
     if (!email || !tempPassword) return Response.json({ error: "Email and temporary password are required" }, { status: 400 });
     if (tempPassword.length < 8) return Response.json({ error: "Temporary password must be at least 8 characters" }, { status: 400 });
+    if (accountRole === "interviewer" && !username?.trim()) return Response.json({ error: "Interviewer accounts need a username" }, { status: 400 });
 
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email: email.trim(),
@@ -37,8 +37,10 @@ export async function POST(request) {
     const { error: profileErr } = await admin.from("profiles").insert([{
       id: created.user.id,
       email: email.trim(),
-      role: "client",
+      role: accountRole,
       full_name: fullName || null,
+      username: accountRole === "interviewer" ? username.trim() : null,
+      created_by: caller.user.id,
       must_change_password: true,
     }]);
     if (profileErr) throw new Error("Account created but profile failed: " + profileErr.message);
