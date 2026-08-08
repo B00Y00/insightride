@@ -200,7 +200,7 @@ const [waiting, setWaiting] = useState(0);
           ))}
         </div>
 <div style={{ display: "flex", gap: "8px", padding: "12px 24px", borderBottom: "1px solid #1A1A18", overflowX: "auto" }}>
-        {[["/admin/upload", "Upload & process"], ["/admin/clients", "Clients"], ["/admin/chatlogs", "Chat logs"], ["/admin/inbox", waiting > 0 ? `Inbox (${waiting})` : "Inbox"], ["/admin/updates", "Updates"], ["/admin/content", "Login content"]].map(([href, lbl]) => (
+        {[["/admin/upload", "Upload & process"], ["/admin/clients", "Clients"], ["/admin/interviewers", "Interviewers"], ["/admin/chatlogs", "Chat logs"], ["/admin/inbox", waiting > 0 ? `Inbox (${waiting})` : "Inbox"], ["/admin/updates", "Updates"], ["/admin/content", "Login content"]].map(([href, lbl]) => (
           <a key={href} href={href} style={{ padding: "8px 14px", borderRadius: "8px", border: lbl.startsWith("Inbox (") ? "1px solid #4A3A20" : "1px solid #2A2A28", background: lbl.startsWith("Inbox (") ? "#2A2520" : "#1A1A18", color: lbl.startsWith("Inbox (") ? "#D4A017" : "#A8A8A4", fontSize: "12.5px", fontWeight: "500", textDecoration: "none", whiteSpace: "nowrap" }}>{lbl}</a>
         ))}
       </div>
