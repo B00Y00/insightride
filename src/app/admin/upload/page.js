@@ -38,6 +38,12 @@ export default function UploadInterviewPage() {
   const [report, setReport] = useState(null);
   const [reportBusy, setReportBusy] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [uploaders, setUploaders] = useState([]);
+  const uploaderName = (id) => {
+    if (!id) return "Admin";
+    const p = uploaders.find((x) => x.id === id);
+    return p ? (p.role === "admin" ? `Admin (${p.email})` : (p.username || p.full_name || p.email)) : "Unknown";
+  };
 const [editText, setEditText] = useState(null);
   const [approveBusy, setApproveBusy] = useState(false);
   const [instructions, setInstructions] = useState("");
@@ -59,13 +65,15 @@ const [editText, setEditText] = useState(null);
   }
   useEffect(() => {
     supabase.from("contracts").select("id, client, topic, report_threshold, report_instructions").order("created_at", { ascending: false }).then(({ data }) => { if (data) setContracts(data); });
+    supabase.from("profiles").select("id, username, full_name, email, role").then(({ data }) => { if (data) setUploaders(data); });
   }, []);
 
   async function loadInterviews(cid) {
     if (!cid) { setInterviews([]); return; }
     const { data } = await supabase
       .from("completed_interviews")
-      .select("id, interview_number, status, transcript, structured_data, quality_score")
+      supabase.from("contracts").select("id, client, topic, report_threshold, report_instructions").order("created_at", { ascending: false }).then(({ data }) => { if (data) setContracts(data); });
+    supabase.from("profiles").select("id, username, full_name, email, role").then(({ data }) => { if (data) setUploaders(data); });
       .eq("contract_id", cid).order("interview_number", { ascending: true });
     if (data) setInterviews(data);
   }
@@ -110,7 +118,8 @@ const [editText, setEditText] = useState(null);
       const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, contentType: file.type || "video/mp4" });
       if (uploadErr) throw uploadErr;
 
-      const row = { contract_id: contractId, interview_number: nextNumber, interviewer_name: interviewerName || null, demographics: demo, latitude: lat ? parseFloat(lat) : null, longitude: lng ? parseFloat(lng) : null, video_url: path, status: "uploaded" };
+      const { data: { user: uploader } } = await supabase.auth.getUser();
+      const row = { contract_id: contractId, interview_number: nextNumber, interviewer_name: interviewerName || null, uploaded_by: uploader?.id || null, demographics: demo, latitude: lat ? parseFloat(lat) : null, longitude: lng ? parseFloat(lng) : null, video_url: path, status: "uploaded" };
       const { error: insertErr } = await supabase.from("completed_interviews").insert([row]);
       if (insertErr) throw insertErr;
 
@@ -247,7 +256,10 @@ async function saveReportEdits() {
                     return (
                       <div key={iv.id} style={{ background: "#1A1A18", border: "1px solid #2A2A28", borderRadius: "10px", padding: "12px 14px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                          <div>
                           <div style={{ fontSize: "14px", color: "#E8E8E4", fontWeight: "500" }}>Interview #{iv.interview_number}</div>
+                          <div style={{ fontSize: "11px", color: "#888880", marginTop: "2px" }}>Uploaded by {uploaderName(iv.uploaded_by)} at {iv.created_at ? new Date(iv.created_at).toLocaleString() : "—"}</div>
+                        </div>
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                             <span style={{ fontSize: "12px", fontWeight: "600", color: STATUS_COLORS[iv.status] || "#A8A8A4", textTransform: "capitalize" }}>{isProcessing ? "analysing…" : (iv.status || "uploaded")}</span>
                             {(iv.status === "uploaded" || iv.status === "failed") && (<button onClick={() => transcribe(iv.id)} style={smallBtn("#D4A017", "#0E0E0C")}>{iv.status === "failed" ? "Retry" : "Transcribe"}</button>)}
