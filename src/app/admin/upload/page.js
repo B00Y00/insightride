@@ -72,8 +72,7 @@ const [editText, setEditText] = useState(null);
     if (!cid) { setInterviews([]); return; }
     const { data } = await supabase
       .from("completed_interviews")
-      supabase.from("contracts").select("id, client, topic, report_threshold, report_instructions").order("created_at", { ascending: false }).then(({ data }) => { if (data) setContracts(data); });
-    supabase.from("profiles").select("id, username, full_name, email, role").then(({ data }) => { if (data) setUploaders(data); });
+            .select("*")
       .eq("contract_id", cid).order("interview_number", { ascending: true });
     if (data) setInterviews(data);
   }
