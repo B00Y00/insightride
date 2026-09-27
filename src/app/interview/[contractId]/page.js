@@ -1,867 +1,257 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
+import { supabase } from "../../../lib/supabase";
+import {
+  tokens,
+  Fonts,
+  t,
+  L,
+  isAnswered,
+  useLandscape,
+  resolveContractId,
+  parseDemoFields,
+  getConsentConfig,
+  DEMO_OPTIONS,
+  ProgressBar,
+  OptionButton,
+  CheckRow,
+  SlideView,
+  ThankYou,
+  inputStyle,
+} from "../../../lib/deck";
 
 // ============================================================
 // InsightRide — Interviewee Tablet
-// STEP 1: slide renderer + hardcoded sample deck
+// STEP 3: deck loaded from Supabase + consent + demographics + slides
 //
 // File location in repo: src/app/interview/[contractId]/page.js
-// Test URL:              /interview/demo
+// Test URL:              /interview/demo  (maps to the seeded demo contract)
 //
-// What this step does: renders every slide type in the sample deck
-// with temporary test buttons at the bottom. Nothing is saved yet.
-// Later steps add: consent + demographics in front, presenter mode
-// (the interviewer's phone replaces the test buttons), camera 
-// recording + slide timeline, and loading real decks from Supabase.
+// Flow: loading -> welcome -> consent -> demographics -> slides -> complete
+// Answers are held in the exact survey_responses shape (keyed by question id).
+// Still to come: presenter mode (interviewer phone replaces the test bar),
+// camera recording + slide timeline, saving the completed interview.
 // ============================================================
 
-// ── Design tokens (same family as the interviewee prototype) ──
-const serif = "'Source Serif 4', Georgia, serif";
-const sans = "'Outfit', sans-serif";
-const accent = "#1B6B4A";
-const accentLight = "#E8F5EE";
-const warmBg = "#FDFBF7";
-const cardBg = "#FFFFFF";
-const textPrimary = "#1A1A18";
-const textSecondary = "#6B6B64";
-const border = "#E8E4DC";
-const amber = "#B8860B";
-const amberBg = "#FFF8E8";
-const amberBorder = "#E8D8A8";
-const amberText = "#8B7030";
-const FONT_LINK =
-  "https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap";
+const { serif, sans, accent, accentLight, warmBg, cardBg, textPrimary, textSecondary, border, amber } = tokens;
 
-// ── Interface strings. Same language-layer idea as slide text:
-//    add a "de" block later and everything below translates. ──
-const UI = {
-  en: {
-    other: "Other (please specify)",
-    prefer_not: "Prefer not to say",
-    specify: "Please specify",
-    type_here: "Type your answer here...",
-    voice_cue: "We are recording your answer. Just speak naturally to your interviewer.",
-    voice_note: "There is nothing to tap on this screen.",
-    private: "Private response. Your interviewer cannot see this answer.",
-    locked: "Please watch the full video before answering.",
-    play: "Play",
-    replay: "Watch again",
-    resume: "Resume",
-    finished: "Video finished",
-    slide_of: (i, n) => "Slide " + i + " of " + n,
-    thanks_title: "Thank you",
-    thanks_body:
-      "Your responses have been recorded. Your perspective helps shape better products and services for everyone.",
-    thanks_comp: "Your compensation",
-    thanks_pay: "Your interviewer will arrange your payment now.",
-  },
-};
+// Height reserved for the temporary test bar. Becomes 0 when presenter mode replaces it.
+const TEST_BAR = 72;
 
-// ── Sample contract (stands in for the contracts table for now) ──
-const SAMPLE_CONTRACT = {
-  id: "demo",
-  client: "Scotiabank",
-  topic: "Newcomer reactions to a bank advertisement",
-  estimated_minutes: 20,
-  interviewee_incentive: 60,
-};
+const EMPTY_CHECKS = { understood: false, recording: false, dataUse: false, voluntary: false, withdraw: false };
 
-// ── Sample deck ──
-// DECK SCHEMA (this is the data model every later step builds on):
-//   deck.slides[]            ordered list of slides
-//   slide.id / slide.title   stable id (never changes) + short label for admin, HelpBot, stats
-//   slide.layout             "stack" (media above) | "split" (media left, question right in landscape)
-//   slide.media              null | { type: "image"|"video", url, alt: {lang} }
-//   slide.text               null | { heading: {lang}, body: {lang} }   body supports **bold**, blank lines, "- " bullets
-//   slide.interactions[]     0 or 1 interaction today (array so multiple can be added later)
-//   interaction.id           the question id -> key in survey_responses / extraction_schema
-//   interaction.type         "single_choice" | "multi_select" | "scale" | "text" | "voice"
-//   interaction.options[]    { id (stable, used for stats), label: {lang} }
-//   interaction.allow_other / allow_prefer_not / private / required / scale / placeholder / helper
-//   slide.settings           { require_full_playback, allow_replay, auto_blank }
-//   slide.notes[]            PRIVATE interviewer probes ({lang}) — shown ONLY on the interviewer phone, never here
-//   slide.rules[]            branching hook (empty for now)
-//   slide.variants           randomization hook (null for now)
-// Every text field is a language object { en: "..." } so translation is a new key, not a new deck.
-const SAMPLE_DECK = {
-  id: "demo-deck",
-  version: 1,
-  default_language: "en",
-  show_progress: true,
-  show_thank_you: true,
-  client_can_view: true,
-  slides: [
-    {
-      id: "s_intro",
-      title: "Intro",
-      layout: "stack",
-      media: null,
-      text: {
-        heading: { en: "A short ad test" },
-        body: {
-          en:
-            "We are going to show you a short advertisement and ask what you think.\n\nThere are **no right or wrong answers**. We want your honest reaction.\n\n- Some questions have buttons to tap\n- Some just ask you to speak\n- Your interviewer can move on whenever you are ready",
-        },
-      },
-      interactions: [],
-      settings: {},
-      notes: [{ en: "Keep this brief. Check the tablet is angled so they can see it comfortably before playing the ad." }],
-      rules: [],
-      variants: null,
-    },
-    {
-      id: "s_ad",
-      title: "The ad",
-      layout: "stack",
-      media: {
-        type: "video",
-        url: "https://www.w3schools.com/html/mov_bbb.mp4",
-        alt: { en: "Bank advertisement (placeholder test clip)" },
-      },
-      text: {
-        heading: { en: "Please watch this ad" },
-        body: { en: "It is short. The tablet will tell you when it has finished." },
-      },
-      interactions: [],
-      settings: { require_full_playback: true, allow_replay: true },
-      notes: [{ en: "Do not talk during the ad. Watch their face and note any visible reaction and when it happened." }],
-      rules: [],
-      variants: null,
-    },
-    {
-      id: "s_recall",
-      title: "Ad recall",
-      layout: "stack",
-      media: null,
-      text: null,
-      interactions: [
-        {
-          id: "q_recall",
-          type: "voice",
-          prompt: { en: "In your own words, what was that ad about?" },
-          required: true,
-        },
-      ],
-      settings: { auto_blank: true },
-      notes: [{ en: "Let them finish before probing. Probes: What stood out most? Who do you think it was made for?" }],
-      rules: [],
-      variants: null,
-    },
-    {
-      id: "s_trust",
-      title: "Trust",
-      layout: "stack",
-      media: null,
-      text: null,
-      interactions: [
-        {
-          id: "q_trust",
-          type: "scale",
-          prompt: { en: "How much did this ad make you trust the bank?" },
-          scale: { min: 1, max: 5, min_label: { en: "Not at all" }, max_label: { en: "A great deal" } },
-          required: true,
-        },
-      ],
-      settings: {},
-      notes: [{ en: "If they pick 1 or 2, ask what specifically lowered their trust." }],
-      rules: [],
-      variants: null,
-    },
-    {
-      id: "s_feel",
-      title: "Feeling",
-      layout: "split",
-      media: {
-        type: "image",
-        url: "https://picsum.photos/seed/insightride-ad/1200/800",
-        alt: { en: "A still image from the ad (placeholder)" },
-      },
-      text: null,
-      interactions: [
-        {
-          id: "q_feel",
-          type: "single_choice",
-          prompt: { en: "Which of these words best describes how the ad made you feel?" },
-          options: [
-            { id: "reassured", label: { en: "Reassured" } },
-            { id: "curious", label: { en: "Curious" } },
-            { id: "skeptical", label: { en: "Skeptical" } },
-            { id: "indifferent", label: { en: "Indifferent" } },
-          ],
-          allow_other: true,
-          allow_prefer_not: true,
-          required: true,
-        },
-      ],
-      settings: {},
-      notes: [{ en: "Ask what in the ad produced that feeling: a face, a line, the music?" }],
-      rules: [],
-      variants: null,
-    },
-    {
-      id: "s_barriers",
-      title: "Barriers",
-      layout: "stack",
-      media: null,
-      text: null,
-      interactions: [
-        {
-          id: "q_barriers",
-          type: "multi_select",
-          prompt: { en: "What, if anything, would stop you from opening an account with this bank?" },
-          helper: { en: "Select all that apply." },
-          options: [
-            { id: "fees", label: { en: "Monthly fees" } },
-            { id: "credit_history", label: { en: "Needing a Canadian credit history" } },
-            { id: "language", label: { en: "Language barriers" } },
-            { id: "trust", label: { en: "I do not trust banks yet" } },
-            { id: "nothing", label: { en: "Nothing would stop me" } },
-          ],
-          allow_other: true,
-          allow_prefer_not: false,
-          required: true,
-        },
-      ],
-      settings: {},
-      notes: [{ en: "For each barrier they tap, ask for a real example from their own experience." }],
-      rules: [],
-      variants: null,
-    },
-    {
-      id: "s_appscreen",
-      title: "App screen",
-      layout: "split",
-      media: {
-        type: "image",
-        url: "https://picsum.photos/seed/insightride-app/900/1200",
-        alt: { en: "A screen from the mobile banking app (placeholder)" },
-      },
-      text: null,
-      interactions: [
-        {
-          id: "q_appscreen",
-          type: "voice",
-          prompt: { en: "Talk me through what you notice on this screen." },
-          required: true,
-        },
-      ],
-      settings: { auto_blank: false },
-      notes: [{ en: "Silence is fine. Let them look. Probes: What would you tap first? Is anything confusing?" }],
-      rules: [],
-      variants: null,
-    },
-    {
-      id: "s_private",
-      title: "Private message",
-      layout: "stack",
-      media: null,
-      text: null,
-      interactions: [
-        {
-          id: "q_private",
-          type: "text",
-          prompt: { en: "Is there anything you would say to the bank that you would rather not say out loud?" },
-          placeholder: { en: "Type here. Your interviewer cannot see this." },
-          private: true,
-          required: true,
-        },
-      ],
-      settings: {},
-      notes: [{ en: "Turn away while they type. You will not see this answer." }],
-      rules: [],
-      variants: null,
-    },
-  ],
-};
+// ── Screens ──
 
-// ── Helpers ──
-
-// Pick the right language from a { en: "...", de: "..." } field.
-function L(field, lang) {
-  if (!field) return "";
-  if (typeof field === "string") return field;
-  return field[lang] || field.en || Object.values(field)[0] || "";
-}
-
-// Has this interaction been answered? (voice counts as answered: the transcript is the answer)
-function isAnswered(q, a) {
-  if (!q) return true;
-  if (q.type === "voice") return true;
-  if (!a) return false;
-  const otherText = (a.other_text || "").trim();
-  if (q.type === "single_choice") return !!a.option && (a.option !== "other" || otherText.length > 0);
-  if (q.type === "multi_select") {
-    const list = a.options || [];
-    return list.length > 0 && (!list.includes("other") || otherText.length > 0);
-  }
-  if (q.type === "scale") return typeof a.value === "number";
-  if (q.type === "text") return (a.text || "").trim().length > 0;
-  return true;
-}
-
-function useLandscape() {
-  const [landscape, setLandscape] = useState(false);
-  useEffect(() => {
-    const check = () => setLandscape(window.innerWidth > window.innerHeight);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
-  return landscape;
-}
-
-// Light formatting for slide body text: **bold**, blank lines, "- " bullets.
-function boldify(line) {
-  const parts = line.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((p, i) =>
-    p.startsWith("**") && p.endsWith("**") ? <strong key={i}>{p.slice(2, -2)}</strong> : p
-  );
-}
-function Rich({ text, style }) {
-  if (!text) return null;
-  const out = [];
-  let list = [];
-  const flush = () => {
-    if (list.length) {
-      out.push(<ul key={"ul" + out.length} style={{ margin: "4px 0 10px 22px", padding: 0 }}>{list}</ul>);
-      list = [];
-    }
-  };
-  text.split("\n").forEach((line, i) => {
-    if (line.startsWith("- ")) {
-      list.push(<li key={i} style={{ marginBottom: 4 }}>{boldify(line.slice(2))}</li>);
-    } else {
-      flush();
-      if (line.trim() === "") out.push(<div key={i} style={{ height: 8 }} />);
-      else out.push(<p key={i} style={{ margin: "0 0 8px" }}>{boldify(line)}</p>);
-    }
-  });
-  flush();
-  return <div style={style}>{out}</div>;
-}
-
-const inputStyle = {
-  width: "100%",
-  padding: "14px 16px",
-  borderRadius: 10,
-  border: "1.5px solid " + border,
-  background: cardBg,
-  fontSize: 16,
-  fontFamily: sans,
-  color: textPrimary,
-  boxSizing: "border-box",
-  outline: "none",
-};
-
-// ── Small components ──
-
-function Fonts() {
-  return (
-    <>
-      <link href={FONT_LINK} rel="stylesheet" />
-      <style>{"@keyframes irPulse { 0%,100% { opacity:1; transform:scale(1);} 50% { opacity:.35; transform:scale(.8);} }"}</style>
-    </>
-  );
-}
-
-function ProgressBar({ current, total }) {
-  const pct = (current / total) * 100;
-  return (
-    <div style={{ height: 4, background: border, borderRadius: 2, overflow: "hidden", width: "100%" }}>
-      <div style={{ height: "100%", width: pct + "%", background: accent, borderRadius: 2, transition: "width 0.4s ease" }} />
-    </div>
-  );
-}
-
-function OptionButton({ label, selected, onClick, multi }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        width: "100%",
-        padding: "14px 16px",
-        borderRadius: 10,
-        border: selected ? "2px solid " + accent : "1.5px solid " + border,
-        background: selected ? accentLight : cardBg,
-        color: selected ? accent : textPrimary,
-        fontSize: 16,
-        fontWeight: selected ? 600 : 400,
-        fontFamily: sans,
-        cursor: "pointer",
-        textAlign: "left",
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        lineHeight: 1.4,
-      }}
-    >
-      <span
-        style={{
-          width: 22,
-          height: 22,
-          borderRadius: multi ? 6 : "50%",
-          border: selected ? "2px solid " + accent : "2px solid #C8C4BC",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-          background: selected ? accent : "transparent",
-        }}
-      >
-        {selected && (
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )}
-      </span>
-      {label}
-    </button>
-  );
-}
-
-function ScaleInput({ scale, lang, value, onChange }) {
-  const min = typeof scale.min === "number" ? scale.min : 1;
-  const max = typeof scale.max === "number" ? scale.max : 5;
-  const range = [];
-  for (let i = min; i <= max; i++) range.push(i);
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        {range.map((n) => (
-          <button
-            key={n}
-            onClick={() => onChange(n)}
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: 12,
-              border: value === n ? "2px solid " + accent : "1.5px solid " + border,
-              background: value === n ? accent : cardBg,
-              color: value === n ? "#fff" : textPrimary,
-              fontSize: 20,
-              fontWeight: 600,
-              fontFamily: sans,
-              cursor: "pointer",
-            }}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: textSecondary, padding: "0 4px" }}>
-        <span>{L(scale.min_label, lang)}</span>
-        <span>{L(scale.max_label, lang)}</span>
-      </div>
-    </div>
-  );
-}
-
-function PrivateBadge({ text }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "10px 14px",
-        borderRadius: 10,
-        background: amberBg,
-        border: "1.5px solid " + amberBorder,
-        marginBottom: 16,
-        fontSize: 13,
-        color: amberText,
-        fontWeight: 500,
-      }}
-    >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path d="M12 7H4V5a4 4 0 118 0v2zm1 0V5a5 5 0 00-10 0v2a1 1 0 00-1 1v5a1 1 0 001 1h10a1 1 0 001-1V8a1 1 0 00-1-1z" fill={amberText} />
-      </svg>
-      {text}
-    </div>
-  );
-}
-
-function LockedNote({ text }) {
-  return (
-    <div
-      style={{
-        padding: "10px 14px",
-        borderRadius: 10,
-        background: amberBg,
-        border: "1.5px solid " + amberBorder,
-        marginBottom: 14,
-        fontSize: 14,
-        color: amberText,
-        fontWeight: 500,
-      }}
-    >
-      {text}
-    </div>
-  );
-}
-
-function VoiceCue({ text, note }) {
-  return (
-    <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "16px 18px",
-          borderRadius: 12,
-          background: accentLight,
-          border: "1.5px solid " + accent,
-          color: accent,
-          fontSize: 16,
-          fontWeight: 500,
-          lineHeight: 1.4,
-        }}
-      >
-        <span
-          style={{
-            width: 14,
-            height: 14,
-            borderRadius: "50%",
-            background: "#D0433B",
-            flexShrink: 0,
-            animation: "irPulse 1.4s ease-in-out infinite",
-          }}
-        />
-        {text}
-      </div>
-      <div style={{ fontSize: 13, color: textSecondary, marginTop: 10 }}>{note}</div>
-    </div>
-  );
-}
-
-function VideoBlock({ media, lang, landscape, requireFull, allowReplay, watched, onWatched }) {
-  const ref = useRef(null);
-  const [playing, setPlaying] = useState(false);
-  const [started, setStarted] = useState(false);
-  const u = UI[lang] || UI.en;
-
-  function safePlay() {
-    const v = ref.current;
-    if (!v) return;
-    const p = v.play();
-    if (p && p.catch) p.catch(() => {});
-  }
-  function playFromStart() {
-    const v = ref.current;
-    if (!v) return;
-    v.currentTime = 0;
-    safePlay();
-  }
-
-  const showOverlay = requireFull && !playing;
-  let overlayButton = null;
-  if (showOverlay) {
-    if (!started) overlayButton = { label: u.play, action: playFromStart };
-    else if (watched) overlayButton = allowReplay ? { label: u.replay, action: playFromStart } : null;
-    else overlayButton = { label: u.resume, action: safePlay };
-  }
-
-  return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ position: "relative", background: "#000", borderRadius: 14, overflow: "hidden" }}>
-        <video
-          ref={ref}
-          src={media.url}
-          playsInline
-          preload="auto"
-          controls={!requireFull}
-          style={{ width: "100%", maxHeight: landscape ? "62vh" : "42vh", display: "block", background: "#000" }}
-          onPlay={() => {
-            setPlaying(true);
-            setStarted(true);
-          }}
-          onPause={() => setPlaying(false)}
-          onEnded={() => {
-            setPlaying(false);
-            onWatched();
-          }}
-        />
-        {showOverlay && (
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 12,
-              background: "rgba(0,0,0,0.45)",
-            }}
-          >
-            {overlayButton && (
-              <button
-                onClick={overlayButton.action}
-                style={{
-                  padding: "16px 40px",
-                  borderRadius: 12,
-                  border: "none",
-                  background: accent,
-                  color: "#fff",
-                  fontSize: 18,
-                  fontWeight: 600,
-                  fontFamily: sans,
-                  cursor: "pointer",
-                }}
-              >
-                {overlayButton.label}
-              </button>
-            )}
-            {watched && <div style={{ color: "#fff", fontSize: 14, fontFamily: sans, opacity: 0.9 }}>{u.finished}</div>}
-          </div>
-        )}
-      </div>
-      {!requireFull && watched && (
-        <div style={{ fontSize: 13, color: accent, marginTop: 8, fontWeight: 500 }}>{u.finished}</div>
-      )}
-    </div>
-  );
-}
-
-function MediaBlock({ media, lang, landscape, requireFull, allowReplay, watched, onWatched }) {
-  if (media.type === "image") {
-    return (
-      <div
-        style={{
-          marginBottom: 20,
-          background: cardBg,
-          border: "1.5px solid " + border,
-          borderRadius: 14,
-          overflow: "hidden",
-          display: "flex",
-          justifyContent: "center",
-        }}
-      >
-        <img
-          src={media.url}
-          alt={L(media.alt, lang)}
-          style={{ maxWidth: "100%", maxHeight: landscape ? "62vh" : "42vh", objectFit: "contain", display: "block" }}
-        />
-      </div>
-    );
-  }
-  if (media.type === "video") {
-    return (
-      <VideoBlock
-        media={media}
-        lang={lang}
-        landscape={landscape}
-        requireFull={requireFull}
-        allowReplay={allowReplay}
-        watched={watched}
-        onWatched={onWatched}
-      />
-    );
-  }
-  return null;
-}
-
-function TextBlock({ text, lang, big }) {
-  const heading = L(text.heading, lang);
-  const body = L(text.body, lang);
-  return (
-    <div style={big ? { maxWidth: 680, margin: "36px auto 20px" } : { marginBottom: 20 }}>
-      {heading && (
-        <h2 style={{ fontFamily: serif, fontSize: big ? 32 : 22, fontWeight: 700, lineHeight: 1.3, margin: "0 0 14px", color: textPrimary }}>
-          {heading}
-        </h2>
-      )}
-      {body && <Rich text={body} style={{ fontSize: big ? 19 : 16, lineHeight: 1.65, color: big ? textPrimary : textSecondary }} />}
-    </div>
-  );
-}
-
-function ChoiceList({ q, lang, value, multi, onChange }) {
-  const u = UI[lang] || UI.en;
-  const opts = [...(q.options || [])];
-  if (q.allow_other) opts.push({ id: "other", label: { en: u.other } });
-  if (q.allow_prefer_not) opts.push({ id: "prefer_not", label: { en: u.prefer_not } });
-
-  const selected = (id) => (multi ? (value.options || []).includes(id) : value.option === id);
-
-  function tap(id) {
-    if (multi) {
-      let list = value.options || [];
-      if (id === "prefer_not") {
-        list = list.includes("prefer_not") ? [] : ["prefer_not"];
-      } else {
-        list = list.filter((x) => x !== "prefer_not");
-        list = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
-      }
-      onChange({ options: list, other_text: list.includes("other") ? value.other_text || "" : "" });
-    } else {
-      onChange({ option: id, other_text: id === "other" ? value.other_text || "" : "" });
-    }
-  }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {opts.map((o) => (
-        <OptionButton key={o.id} label={L(o.label, lang)} selected={selected(o.id)} multi={multi} onClick={() => tap(o.id)} />
-      ))}
-      {selected("other") && (
-        <input
-          type="text"
-          value={value.other_text || ""}
-          onChange={(e) => onChange({ ...value, other_text: e.target.value })}
-          placeholder={u.specify}
-          style={inputStyle}
-        />
-      )}
-    </div>
-  );
-}
-
-function InteractionBlock({ q, lang, answer, onAnswer, locked }) {
-  const u = UI[lang] || UI.en;
-  const a = answer || {};
-  const helper = L(q.helper, lang);
-  return (
-    <div>
-      {q.private && <PrivateBadge text={u.private} />}
-      <h2 style={{ fontFamily: serif, fontSize: 23, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px", color: textPrimary }}>
-        {L(q.prompt, lang)}
-      </h2>
-      {helper ? (
-        <div style={{ fontSize: 14, color: textSecondary, marginBottom: 16, lineHeight: 1.5 }}>{helper}</div>
-      ) : (
-        <div style={{ height: 12 }} />
-      )}
-      {locked && <LockedNote text={u.locked} />}
-      <div style={{ opacity: locked ? 0.45 : 1, pointerEvents: locked ? "none" : "auto" }}>
-        {q.type === "single_choice" && <ChoiceList q={q} lang={lang} value={a} multi={false} onChange={(v) => onAnswer(q.id, v)} />}
-        {q.type === "multi_select" && <ChoiceList q={q} lang={lang} value={a} multi onChange={(v) => onAnswer(q.id, v)} />}
-        {q.type === "scale" && (
-          <ScaleInput scale={q.scale || {}} lang={lang} value={a.value} onChange={(v) => onAnswer(q.id, { value: v })} />
-        )}
-        {q.type === "text" && (
-          <textarea
-            value={a.text || ""}
-            onChange={(e) => onAnswer(q.id, { text: e.target.value })}
-            placeholder={L(q.placeholder, lang) || u.type_here}
-            rows={5}
-            style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }}
-          />
-        )}
-        {q.type === "voice" && <VoiceCue text={u.voice_cue} note={u.voice_note} />}
-      </div>
-    </div>
-  );
-}
-
-function SlideView({ slide, q, lang, landscape, answer, onAnswer, locked, watched, onWatched }) {
-  const st = slide.settings || {};
-  const split = slide.layout === "split" && landscape && slide.media;
-  const mediaEl = slide.media ? (
-    <MediaBlock
-      media={slide.media}
-      lang={lang}
-      landscape={landscape}
-      requireFull={!!st.require_full_playback}
-      allowReplay={st.allow_replay !== false}
-      watched={watched}
-      onWatched={onWatched}
-    />
-  ) : null;
-  const textEl = slide.text ? <TextBlock text={slide.text} lang={lang} big={!slide.media && !q} /> : null;
-  const qEl = q ? <InteractionBlock q={q} lang={lang} answer={answer} onAnswer={onAnswer} locked={locked} /> : null;
-
-  return (
-    <div style={{ padding: "20px 24px", maxWidth: 1100, margin: "0 auto" }}>
-      {split ? (
-        <div style={{ display: "flex", gap: 28, alignItems: "flex-start" }}>
-          <div style={{ flex: "1.15 1 0", minWidth: 0 }}>{mediaEl}</div>
-          <div style={{ flex: "1 1 0", minWidth: 0 }}>
-            {textEl}
-            {qEl}
-          </div>
-        </div>
-      ) : (
-        <div style={{ maxWidth: 720, margin: "0 auto" }}>
-          {mediaEl}
-          {textEl}
-          {qEl}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ThankYou({ contract, lang }) {
-  const u = UI[lang] || UI.en;
+function Centered({ children }) {
   return (
     <div style={{ minHeight: "80vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", textAlign: "center" }}>
-      <div style={{ width: 72, height: 72, borderRadius: "50%", background: accentLight, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 24 }}>
-        <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-          <path d="M10 18L16 24L26 12" stroke={accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      {children}
+    </div>
+  );
+}
+
+function StatusScreen({ message, onRetry, retryLabel }) {
+  return (
+    <Centered>
+      <div style={{ fontSize: 17, color: textSecondary, lineHeight: 1.6, maxWidth: 420 }}>{message}</div>
+      {onRetry && (
+        <button onClick={onRetry} style={{ marginTop: 24, padding: "14px 28px", borderRadius: 10, border: "none", background: accent, color: "#fff", fontSize: 15, fontWeight: 600, fontFamily: sans, cursor: "pointer" }}>
+          {retryLabel}
+        </button>
+      )}
+    </Centered>
+  );
+}
+
+function WelcomeScreen({ contract, u, onContinue }) {
+  return (
+    <Centered>
+      <div style={{ width: 64, height: 64, borderRadius: 16, background: accentLight, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 24 }}>
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <path d="M16 4C9.4 4 4 9.4 4 16s5.4 12 12 12 12-5.4 12-12S22.6 4 16 4zm0 22c-5.5 0-10-4.5-10-10S10.5 6 16 6s10 4.5 10 10-4.5 10-10 10z" fill={accent} />
+          <path d="M16 10a2 2 0 100 4 2 2 0 000-4zM16 16c-1.1 0-2 .9-2 2v4a2 2 0 104 0v-4c0-1.1-.9-2-2-2z" fill={accent} />
         </svg>
       </div>
-      <h1 style={{ fontFamily: serif, fontSize: 28, fontWeight: 700, margin: "0 0 8px", color: textPrimary }}>{u.thanks_title}</h1>
-      <p style={{ fontSize: 16, color: textSecondary, lineHeight: 1.6, maxWidth: 360, margin: "0 0 24px" }}>{u.thanks_body}</p>
-      <div style={{ background: cardBg, border: "1.5px solid " + border, borderRadius: 14, padding: 20, width: "100%", maxWidth: 340 }}>
-        <div style={{ fontSize: 14, color: textSecondary, marginBottom: 4 }}>{u.thanks_comp}</div>
-        <div style={{ fontSize: 36, fontWeight: 700, color: accent }}>${contract.interviewee_incentive}</div>
-        <div style={{ fontSize: 13, color: textSecondary, marginTop: 8, lineHeight: 1.5 }}>{u.thanks_pay}</div>
+      <h1 style={{ fontFamily: serif, fontSize: 28, fontWeight: 700, color: textPrimary, margin: "0 0 12px", lineHeight: 1.3, maxWidth: 480 }}>{u.welcome_title}</h1>
+      <p style={{ fontSize: 16, color: textSecondary, lineHeight: 1.6, maxWidth: 380, margin: "0 0 8px" }}>
+        {u.welcome_body(contract.estimated_minutes, (contract.topic || "").toLowerCase())}
+      </p>
+      <div style={{ background: cardBg, border: "1.5px solid " + border, borderRadius: 14, padding: 20, margin: "20px 0", width: "100%", maxWidth: 360 }}>
+        <div style={{ fontSize: 32, fontWeight: 700, color: accent, marginBottom: 4 }}>${contract.interviewee_incentive}</div>
+        <div style={{ fontSize: 14, color: textSecondary }}>{u.welcome_comp}</div>
+      </div>
+      <p style={{ fontSize: 14, color: textSecondary, lineHeight: 1.6, maxWidth: 380, margin: "0 0 32px" }}>{u.welcome_note}</p>
+      <button onClick={onContinue} style={{ padding: "16px 48px", borderRadius: 12, border: "none", background: accent, color: "#fff", fontSize: 17, fontWeight: 600, cursor: "pointer", fontFamily: sans, width: "100%", maxWidth: 360 }}>
+        {u.continue}
+      </button>
+    </Centered>
+  );
+}
+
+function SectionTitle({ children }) {
+  return <div style={{ fontSize: 13, fontWeight: 600, color: accent, marginBottom: 6 }}>{children}</div>;
+}
+function SectionText({ children }) {
+  return <p style={{ fontSize: 14, color: textPrimary, lineHeight: 1.6, margin: 0 }}>{children}</p>;
+}
+
+function ConsentScreen({ contract, u, cfg, demoFields, checks, setChecks, signature, setSignature, onContinue, current, total }) {
+  const allConsented = Object.values(checks).every(Boolean) && signature.trim().length > 1;
+  const collect = [
+    cfg.video_recording ? u.consent_collect_video : null,
+    cfg.audio_recording ? u.consent_collect_audio : null,
+    cfg.location_data ? u.consent_collect_location : null,
+    u.consent_collect_responses,
+    demoFields.length > 0 ? u.consent_collect_demo(demoFields.map((f) => u.demo_labels[f].toLowerCase()).join(", ")) : null,
+    u.consent_collect_noid,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const items = [
+    ["understood", u.consent_ack_read],
+    ["recording", u.consent_ack_recording(cfg.video_recording ? u.video_and_audio : u.audio_only)],
+    ["dataUse", u.consent_ack_data(cfg.client_name)],
+    ["voluntary", u.consent_ack_voluntary],
+    ["withdraw", u.consent_ack_withdraw(cfg.data_retention_days)],
+  ];
+
+  return (
+    <div style={{ paddingBottom: 120 }}>
+      <div style={{ padding: "16px 24px 0", maxWidth: 720, margin: "0 auto" }}>
+        <ProgressBar current={current} total={total} />
+        <div style={{ fontSize: 12, color: textSecondary, marginTop: 8, fontWeight: 500 }}>{u.step_of(current, total, u.consent_step)}</div>
+      </div>
+      <div style={{ padding: "20px 24px", maxWidth: 720, margin: "0 auto" }}>
+        <h2 style={{ fontFamily: serif, fontSize: 24, fontWeight: 700, color: textPrimary, margin: "0 0 6px" }}>{u.consent_title}</h2>
+        <p style={{ fontSize: 14, color: textSecondary, lineHeight: 1.6, margin: "0 0 20px" }}>{u.consent_intro}</p>
+
+        <div style={{ background: cardBg, border: "1.5px solid " + border, borderRadius: 14, overflow: "hidden", marginBottom: 20 }}>
+          <div style={{ padding: 16, borderBottom: "1px solid " + border }}>
+            <SectionTitle>{u.consent_purpose_h}</SectionTitle>
+            <SectionText>{u.consent_purpose(cfg.client_name)}</SectionText>
+          </div>
+          <div style={{ padding: 16, borderBottom: "1px solid " + border }}>
+            <SectionTitle>{u.consent_collect_h}</SectionTitle>
+            <SectionText>{collect}</SectionText>
+          </div>
+          <div style={{ padding: 16, borderBottom: "1px solid " + border }}>
+            <SectionTitle>{u.consent_use_h}</SectionTitle>
+            <SectionText>
+              {u.consent_use_aggregate} {cfg.third_party_sharing ? u.consent_use_shared(cfg.client_name) : u.consent_use_not_shared}{" "}
+              {u.consent_use_retention(cfg.data_retention_days)}
+            </SectionText>
+          </div>
+          <div style={{ padding: 16 }}>
+            <SectionTitle>{u.consent_rights_h}</SectionTitle>
+            <SectionText>{u.consent_rights(contract.interviewee_incentive, cfg.data_retention_days)}</SectionText>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+          {items.map(([key, label]) => (
+            <CheckRow key={key} label={label} checked={checks[key]} onClick={() => setChecks((c) => ({ ...c, [key]: !c[key] }))} />
+          ))}
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: textSecondary, display: "block", marginBottom: 8 }}>{u.consent_sig_label}</label>
+          <input type="text" value={signature} onChange={(e) => setSignature(e.target.value)} placeholder={u.consent_sig_placeholder} style={inputStyle} />
+          <div style={{ fontSize: 12, color: textSecondary, marginTop: 6, lineHeight: 1.5 }}>{u.consent_sig_note}</div>
+        </div>
+      </div>
+
+      <div style={{ position: "fixed", bottom: TEST_BAR, left: 0, right: 0, padding: "16px 24px", background: "linear-gradient(transparent, " + warmBg + " 30%)", paddingTop: 40 }}>
+        <div style={{ maxWidth: 720, margin: "0 auto" }}>
+          <button
+            onClick={onContinue}
+            disabled={!allConsented}
+            style={{ width: "100%", padding: 16, borderRadius: 12, border: "none", background: allConsented ? accent : "#C8C4BC", color: allConsented ? "#fff" : "#888", fontSize: 16, fontWeight: 600, cursor: allConsented ? "pointer" : "not-allowed", fontFamily: sans }}
+          >
+            {allConsented ? u.consent_cta_ready : u.consent_cta_wait}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DemographicsScreen({ u, demoFields, demographics, setDemographics, onBack, onContinue, current, total }) {
+  const allFilled = demoFields.every((f) => demographics[f]);
+  return (
+    <div style={{ paddingBottom: 120 }}>
+      <div style={{ padding: "16px 24px 0", maxWidth: 720, margin: "0 auto" }}>
+        <ProgressBar current={current} total={total} />
+        <div style={{ fontSize: 12, color: textSecondary, marginTop: 8, fontWeight: 500 }}>{u.step_of(current, total, u.demo_step)}</div>
+      </div>
+      <div style={{ padding: "20px 24px", maxWidth: 720, margin: "0 auto" }}>
+        <h2 style={{ fontFamily: serif, fontSize: 24, fontWeight: 700, color: textPrimary, margin: "0 0 6px" }}>{u.demo_title}</h2>
+        <p style={{ fontSize: 14, color: textSecondary, lineHeight: 1.6, margin: "0 0 24px" }}>{u.demo_intro}</p>
+        {demoFields.map((field) => (
+          <div key={field} style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: textPrimary, marginBottom: 10 }}>{u.demo_labels[field]}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {DEMO_OPTIONS[field].map((option) => (
+                <OptionButton key={option} label={option} selected={demographics[field] === option} onClick={() => setDemographics((d) => ({ ...d, [field]: option }))} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ position: "fixed", bottom: TEST_BAR, left: 0, right: 0, padding: "16px 24px", background: "linear-gradient(transparent, " + warmBg + " 30%)", paddingTop: 40 }}>
+        <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", gap: 12 }}>
+          <button onClick={onBack} style={{ padding: "16px 24px", borderRadius: 12, border: "1.5px solid " + border, background: cardBg, color: textPrimary, fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: sans }}>
+            {u.back}
+          </button>
+          <button
+            onClick={onContinue}
+            disabled={!allFilled}
+            style={{ flex: 1, padding: 16, borderRadius: 12, border: "none", background: allFilled ? accent : "#C8C4BC", color: allFilled ? "#fff" : "#888", fontSize: 16, fontWeight: 600, cursor: allFilled ? "pointer" : "not-allowed", fontFamily: sans }}
+          >
+            {u.continue}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
 // Temporary bottom bar. Dark/gold on purpose so it is obviously NOT interviewee UI.
-// Replaced by the interviewer phone in the presenter-mode step.
-function TestBar({ contractId, canPrev, done, nextLabel, nextWarn, onPrev, onNext, onRestart }) {
-  const btn = (extra) => ({
-    padding: "12px 18px",
-    borderRadius: 10,
-    border: "none",
-    fontSize: 14,
-    fontWeight: 600,
-    fontFamily: sans,
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-    ...extra,
-  });
+function TestBar({ stage, contractId, canPrev, showNav, nextLabel, nextWarn, onPrev, onNext, onRestart, showData, setShowData }) {
+  const btn = (extra) => ({ padding: "12px 16px", borderRadius: 10, border: "none", fontSize: 14, fontWeight: 600, fontFamily: sans, cursor: "pointer", whiteSpace: "nowrap", ...extra });
   return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        padding: "10px 16px 14px",
-        background: "#1A1A18",
-        borderTop: "1px solid #3A3A38",
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        zIndex: 20,
-      }}
-    >
+    <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: TEST_BAR, boxSizing: "border-box", padding: "0 16px", background: "#1A1A18", borderTop: "1px solid #3A3A38", display: "flex", alignItems: "center", gap: 10, zIndex: 20 }}>
       <div style={{ color: "#888880", fontSize: 11, fontFamily: sans, lineHeight: 1.35, flex: 1, minWidth: 0 }}>
-        <div style={{ color: "#D4A017", fontWeight: 600 }}>Step 1 test controls</div>
-        <div>Contract: {contractId}. These buttons will be replaced by the interviewer phone.</div>
+        <div style={{ color: "#D4A017", fontWeight: 600 }}>Step 3 test controls</div>
+        <div>
+          Contract: {contractId.slice(0, 8)} · Stage: {stage}
+        </div>
       </div>
+      <button onClick={() => setShowData(!showData)} style={btn({ background: showData ? "#D4A017" : "#2A2A28", color: showData ? "#0E0E0C" : "#A8A8A4" })}>
+        Data
+      </button>
       <button onClick={onRestart} style={btn({ background: "#2A2A28", color: "#A8A8A4" })}>
         Restart
       </button>
-      <button onClick={onPrev} disabled={!canPrev} style={btn({ background: canPrev ? "#3A3A38" : "#222220", color: canPrev ? "#E8E8E4" : "#555" })}>
-        Back
-      </button>
-      {!done && (
-        <button onClick={onNext} style={btn({ background: nextWarn ? amber : accent, color: "#fff" })}>
-          {nextLabel}
-        </button>
+      {showNav && (
+        <>
+          <button onClick={onPrev} disabled={!canPrev} style={btn({ background: canPrev ? "#3A3A38" : "#222220", color: canPrev ? "#E8E8E4" : "#555" })}>
+            Back
+          </button>
+          <button onClick={onNext} style={btn({ background: nextWarn ? amber : accent, color: "#fff" })}>
+            {nextLabel}
+          </button>
+        </>
       )}
+    </div>
+  );
+}
+
+function DataPanel({ data }) {
+  return (
+    <div style={{ position: "fixed", right: 12, bottom: TEST_BAR + 12, width: "min(440px, calc(100vw - 24px))", maxHeight: "60vh", overflow: "auto", background: "#0E0E0C", color: "#C8E6D0", border: "1px solid #3A3A38", borderRadius: 12, padding: 14, fontSize: 12, fontFamily: "Menlo, Consolas, monospace", zIndex: 30, boxShadow: "0 8px 30px rgba(0,0,0,0.4)" }}>
+      <div style={{ color: "#D4A017", fontWeight: 600, marginBottom: 8, fontFamily: sans }}>What will be saved (live)</div>
+      <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{JSON.stringify(data, null, 2)}</pre>
     </div>
   );
 }
@@ -869,46 +259,119 @@ function TestBar({ contractId, canPrev, done, nextLabel, nextWarn, onPrev, onNex
 // ── Main page ──
 export default function IntervieweeTablet() {
   const params = useParams();
-  const contractId = (params && params.contractId) || "demo";
-  const contract = SAMPLE_CONTRACT; // later: loaded from Supabase by contractId
-  const deck = SAMPLE_DECK; // later: contract.deck from Supabase
-  const lang = deck.default_language || "en";
-  const u = UI[lang] || UI.en;
-  const slides = deck.slides;
+  const contractId = resolveContractId(params && params.contractId);
   const landscape = useLandscape();
 
+  const [contract, setContract] = useState(null);
+  const [deck, setDeck] = useState(null);
+  const [stage, setStage] = useState("loading"); // loading | error | welcome | consent | demographics | slides | complete
+  const [loadError, setLoadError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [checks, setChecks] = useState(EMPTY_CHECKS);
+  const [signature, setSignature] = useState("");
+  const [demographics, setDemographics] = useState({});
+  const [answers, setAnswers] = useState({}); // survey_responses shape, keyed by question id
+  const [slideMeta, setSlideMeta] = useState({}); // per-slide flags (full_playback, advanced_unanswered, ...)
+  const [watched, setWatched] = useState({});
   const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState({}); // questionId -> answer object (survey_responses shape)
-  const [watched, setWatched] = useState({}); // slideId -> true once a video played to the end
-  const [done, setDone] = useState(false);
+  const [showData, setShowData] = useState(false);
+
+  // Load the contract + deck from Supabase
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setStage("loading");
+      const { data, error } = await supabase.from("contracts").select("*").eq("id", contractId).maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        setLoadError("err_offline");
+        setStage("error");
+        return;
+      }
+      if (!data) {
+        setLoadError("err_not_found");
+        setStage("error");
+        return;
+      }
+      setContract(data);
+      if (!data.deck || !Array.isArray(data.deck.slides) || data.deck.slides.length === 0) {
+        setLoadError("err_no_deck");
+        setStage("error");
+        return;
+      }
+      setDeck(data.deck);
+      setStage("welcome");
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [contractId, reloadKey]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [index, done]);
+  }, [stage, index]);
 
-  const slide = slides[index];
+  const lang = (deck && deck.default_language) || "en";
+  const u = t(lang);
+
+  function restart() {
+    setChecks(EMPTY_CHECKS);
+    setSignature("");
+    setDemographics({});
+    setAnswers({});
+    setSlideMeta({});
+    setWatched({});
+    setIndex(0);
+    setStage(deck ? "welcome" : "loading");
+    if (!deck) setReloadKey((k) => k + 1);
+  }
+
+  // ── Loading / error ──
+  if (stage === "loading" || stage === "error") {
+    return (
+      <div style={{ minHeight: "100vh", background: warmBg, fontFamily: sans, color: textPrimary, paddingBottom: TEST_BAR + 20 }}>
+        <Fonts />
+        {stage === "loading" ? (
+          <StatusScreen message={u.loading} />
+        ) : (
+          <StatusScreen message={u[loadError] || u.err_offline} onRetry={loadError === "err_offline" ? () => setReloadKey((k) => k + 1) : null} retryLabel={u.retry} />
+        )}
+        <TestBar stage={stage} contractId={contractId} showNav={false} onRestart={restart} showData={false} setShowData={() => {}} />
+      </div>
+    );
+  }
+
+  // ── Loaded ──
+  const slides = deck.slides;
+  const demoFields = parseDemoFields(contract);
+  const cfg = getConsentConfig(contract, deck, lang);
+  const hasDemo = demoFields.length > 0;
+  const totalSteps = 1 + (hasDemo ? 1 : 0) + slides.length;
+
+  const slide = slides[Math.min(index, slides.length - 1)];
   const q = (slide.interactions && slide.interactions[0]) || null;
   const st = slide.settings || {};
-  const needsWatch = slide.media && slide.media.type === "video" && !!st.require_full_playback && !watched[slide.id];
+  const needsWatch = !!slide.media && slide.media.type === "video" && !!st.require_full_playback && !watched[slide.id];
   const answered = q ? isAnswered(q, answers[q.id]) : true;
   const locked = !!q && needsWatch;
 
   function setAnswer(qid, value) {
     setAnswers((prev) => ({ ...prev, [qid]: value }));
   }
+  function markMeta(slideId, patch) {
+    setSlideMeta((prev) => ({ ...prev, [slideId]: { ...(prev[slideId] || {}), ...patch } }));
+  }
   function next() {
+    if (needsWatch) markMeta(slide.id, { full_playback: false, advanced_video_unfinished: true });
+    if (q && !answered) markMeta(slide.id, { advanced_unanswered: true });
     if (index < slides.length - 1) setIndex(index + 1);
-    else setDone(true);
+    else setStage("complete");
   }
   function prev() {
-    if (done) setDone(false);
-    else if (index > 0) setIndex(index - 1);
-  }
-  function restart() {
-    setIndex(0);
-    setAnswers({});
-    setWatched({});
-    setDone(false);
+    if (index > 0) setIndex(index - 1);
+    else setStage(hasDemo ? "demographics" : "consent");
   }
 
   const nextWarn = needsWatch || !answered;
@@ -920,20 +383,60 @@ export default function IntervieweeTablet() {
         ? "Finish"
         : "Next";
 
+  // Exactly what the completed-interview write will contain (private answers included here
+  // because this is the FINAL record; the live session feed in step 4 strips them).
+  const dataPreview = {
+    contract_id: contractId,
+    deck_version: contract.deck_version,
+    language: lang,
+    demographics,
+    survey_responses: answers,
+    slide_meta: slideMeta,
+  };
+
   return (
-    <div style={{ minHeight: "100vh", background: warmBg, fontFamily: sans, color: textPrimary, paddingBottom: 110 }}>
+    <div style={{ minHeight: "100vh", background: warmBg, fontFamily: sans, color: textPrimary, paddingBottom: TEST_BAR + 20 }}>
       <Fonts />
-      {done ? (
-        deck.show_thank_you ? (
-          <ThankYou contract={contract} lang={lang} />
-        ) : (
-          <div style={{ padding: 40, textAlign: "center", color: textSecondary }}>End of deck</div>
-        )
-      ) : (
+
+      {stage === "welcome" && <WelcomeScreen contract={contract} u={u} onContinue={() => setStage("consent")} />}
+
+      {stage === "consent" && (
+        <ConsentScreen
+          contract={contract}
+          u={u}
+          cfg={cfg}
+          demoFields={demoFields}
+          checks={checks}
+          setChecks={setChecks}
+          signature={signature}
+          setSignature={setSignature}
+          onContinue={() => setStage(hasDemo ? "demographics" : "slides")}
+          current={1}
+          total={totalSteps}
+        />
+      )}
+
+      {stage === "demographics" && (
+        <DemographicsScreen
+          u={u}
+          demoFields={demoFields}
+          demographics={demographics}
+          setDemographics={setDemographics}
+          onBack={() => setStage("consent")}
+          onContinue={() => {
+            setIndex(0);
+            setStage("slides");
+          }}
+          current={2}
+          total={totalSteps}
+        />
+      )}
+
+      {stage === "slides" && (
         <>
-          {deck.show_progress && (
+          {deck.show_progress !== false && (
             <div style={{ padding: "16px 24px 0", maxWidth: 1100, margin: "0 auto" }}>
-              <ProgressBar current={index + 1} total={slides.length} />
+              <ProgressBar current={(hasDemo ? 2 : 1) + index + 1} total={totalSteps} />
               <div style={{ fontSize: 12, color: textSecondary, marginTop: 8, fontWeight: 500 }}>{u.slide_of(index + 1, slides.length)}</div>
             </div>
           )}
@@ -947,19 +450,35 @@ export default function IntervieweeTablet() {
             onAnswer={setAnswer}
             locked={locked}
             watched={!!watched[slide.id]}
-            onWatched={() => setWatched((w) => ({ ...w, [slide.id]: true }))}
+            onWatched={() => {
+              setWatched((w) => ({ ...w, [slide.id]: true }));
+              markMeta(slide.id, { full_playback: true });
+            }}
           />
         </>
       )}
+
+      {stage === "complete" &&
+        (deck.show_thank_you !== false ? (
+          <ThankYou contract={contract} lang={lang} retentionDays={cfg.data_retention_days} />
+        ) : (
+          <StatusScreen message={u.thanks_title} />
+        ))}
+
+      {showData && <DataPanel data={dataPreview} />}
+
       <TestBar
+        stage={stage}
         contractId={contractId}
-        canPrev={done || index > 0}
-        done={done}
+        showNav={stage === "slides"}
+        canPrev={true}
         nextLabel={nextLabel}
         nextWarn={nextWarn}
         onPrev={prev}
         onNext={next}
         onRestart={restart}
+        showData={showData}
+        setShowData={setShowData}
       />
     </div>
   );
