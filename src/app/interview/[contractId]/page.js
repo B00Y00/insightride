@@ -12,7 +12,7 @@ import { useParams } from "next/navigation";
 // What this step does: renders every slide type in the sample deck
 // with temporary test buttons at the bottom. Nothing is saved yet.
 // Later steps add: consent + demographics in front, presenter mode
-// (the interviewer's phone replaces the test buttons), camera
+// (the interviewer's phone replaces the test buttons), camera 
 // recording + slide timeline, and loading real decks from Supabase.
 // ============================================================
 
