@@ -124,6 +124,7 @@ export default function InterviewerApp() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <span style={{ fontSize: "13px", color: "#A8A8A4" }}>{me?.username || me?.full_name}</span>
+          <a href="/interviewer/tablet" style={{ padding: "10px 14px", borderRadius: "10px", background: "#2A2520", border: "1px solid #D4A017", color: "#D4A017", fontSize: "13px", fontWeight: "700", textDecoration: "none", whiteSpace: "nowrap", fontFamily: F }}>Tablet mode</a>
           <button onClick={toggleOnline} style={{ padding: "10px 16px", borderRadius: "10px", border: "none", background: online ? "#1A2A20" : "#D4A017", color: online ? "#6EC4A7" : "#0E0E0C", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: F }}>
             {online ? "● Online — tap to go offline" : "Go Online"}
           </button>
@@ -158,6 +159,9 @@ export default function InterviewerApp() {
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
                   <button onClick={() => { setOpenContract(c); setTab("guide"); setMessage(null); }} style={{ flex: 1, padding: "11px", borderRadius: "9px", border: "1px solid #3A3A38", background: "#1E1E1C", color: "#A8A8A4", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: F }}>View guide</button>
+                  {c.deck_version > 0 && (
+                    <a href="/interviewer/tablet" style={{ flex: 1, padding: "11px", borderRadius: "9px", border: "none", background: "#6EC4A7", color: "#0E0E0C", fontSize: "13px", fontWeight: "700", textAlign: "center", textDecoration: "none", fontFamily: F }}>Start on tablet</a>
+                  )}
                   <button onClick={() => openUpload(c)} style={{ flex: 1, padding: "11px", borderRadius: "9px", border: "none", background: "#D4A017", color: "#0E0E0C", fontSize: "13px", fontWeight: "700", cursor: "pointer", fontFamily: F }}>Upload interview</button>
                 </div>
               </div>

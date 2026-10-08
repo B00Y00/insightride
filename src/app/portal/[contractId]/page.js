@@ -6,10 +6,30 @@ import { useTheme, sans, mono, FONT_LINK, Icon } from "../theme";
 
 const BUCKET = "interview-videos";
 
-function FolderCard({ T, icon, title, note, onClick, active }) {
+function SlidesIcon({ size }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="12" rx="2" />
+      <path d="M12 16v4M8 20h8M7 8h6M7 11h10" />
+    </svg>
+  );
+}
+
+// Every video file of an interview (resumed interviews have 2+ parts)
+function videoParts(iv) {
+  const parts = iv.recording_meta && Array.isArray(iv.recording_meta.parts) ? iv.recording_meta.parts.filter((p) => p && p.path) : [];
+  if (parts.length > 1) return parts.map((p, k) => ({ part: p.part || k + 1, path: p.path, total: parts.length }));
+  return [{ part: 1, path: iv.video_url, total: 1 }];
+}
+function fileExt(path) {
+  const m = /\.([a-z0-9]+)$/i.exec(path || "");
+  return m ? m[1].toLowerCase() : "mp4";
+}
+
+function FolderCard({ T, icon, svg, title, note, onClick, active }) {
   return (
     <button onClick={onClick} style={{ background: active ? T.pineSoft : T.card, border: `1.5px solid ${active ? T.pine : T.line}`, borderRadius: "14px", padding: "18px 20px", textAlign: "left", cursor: "pointer", fontFamily: sans, display: "flex", flexDirection: "column", gap: "8px" }}>
-      <span style={{ color: T.pine }}><Icon name={icon} size={22} /></span>
+      <span style={{ color: T.pine }}>{svg || <Icon name={icon} size={22} />}</span>
       <div style={{ fontSize: "15px", fontWeight: 600, color: T.text, letterSpacing: "-0.01em" }}>{title}</div>
       {note && <div style={{ fontSize: "12.5px", color: T.faint }}>{note}</div>}
     </button>
@@ -37,13 +57,13 @@ export default function ContractFolder() {
       if (prof) setCanDownload(prof.allow_downloads !== false);
 
       const { data: c } = await supabase.from("contracts")
-        .select("id, client, topic, type, estimated_minutes, interviews_total, interviews_remaining")
+        .select("id, client, topic, type, estimated_minutes, interviews_total, interviews_remaining, deck_version, deck->client_can_view")
         .eq("id", contractId).single();
       if (!c) { setState("denied"); return; }
       setContract(c);
 
       const { data: ivs } = await supabase.from("completed_interviews")
-        .select("id, interview_number, video_url, transcript, ai_summary, status")
+        .select("id, interview_number, video_url, transcript, ai_summary, status, recording_meta")
         .eq("contract_id", contractId)
         .order("interview_number", { ascending: true });
       setInterviews(ivs || []);
@@ -58,16 +78,19 @@ export default function ContractFolder() {
     })();
   }, [contractId]);
 
-  async function playVideo(iv) {
+  async function playVideo(iv, p) {
     setNotice("");
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(iv.video_url, 3600);
+    const part = p || videoParts(iv)[0];
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(part.path, 3600);
     if (error || !data?.signedUrl) { setNotice("Couldn't load this video. Please try again."); return; }
-    setPlayer({ number: iv.interview_number, url: data.signedUrl });
+    setPlayer({ number: iv.interview_number + (part.total > 1 ? ` — part ${part.part} of ${part.total}` : ""), url: data.signedUrl });
   }
 
-  async function downloadVideo(iv) {
+  async function downloadVideo(iv, p) {
     setNotice("");
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(iv.video_url, 3600, { download: `interview-${iv.interview_number}.mp4` });
+    const part = p || videoParts(iv)[0];
+    const name = `interview-${iv.interview_number}${part.total > 1 ? "-part" + part.part : ""}.${fileExt(part.path)}`;
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(part.path, 3600, { download: name });
     if (error || !data?.signedUrl) { setNotice("Couldn't prepare the download. Please try again."); return; }
     window.location.href = data.signedUrl;
   }
@@ -129,6 +152,9 @@ export default function ContractFolder() {
           <FolderCard T={T} icon="transcript" title="Transcripts" note={`${withTranscript.length} item${withTranscript.length === 1 ? "" : "s"}`} onClick={() => setFolder("transcripts")} active={folder === "transcripts"} />
           <FolderCard T={T} icon="report" title="Report" note={report ? "Ready to read" : "In preparation"} onClick={() => setFolder("report")} active={folder === "report"} />
           <FolderCard T={T} icon="stats" title="Statistics" onClick={() => { window.location.href = `/portal/${contractId}/stats`; }} active={false} />
+          {contract.deck_version > 0 && contract.client_can_view !== false && (
+            <FolderCard T={T} svg={<SlidesIcon size={22} />} title="Slides" note="What interviewees were shown on the tablet" onClick={() => { window.location.href = `/portal/${contractId}/deck`; }} active={false} />
+          )}
           <FolderCard T={T} icon="chat" title="Interview HelpBot" note="This HelpBot can answer questions regarding data from the interview" onClick={() => { window.location.href = `/portal/${contractId}/chat`; }} active={false} />
         </div>
 
@@ -137,19 +163,29 @@ export default function ContractFolder() {
         {folder === "videos" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {withVideo.length === 0 && <div style={{ color: T.faint, fontSize: "14px" }}>No interview videos yet.</div>}
-            {withVideo.map((iv) => (
-              <div key={iv.id} style={{ background: T.card, border: `1.5px solid ${T.line}`, borderRadius: "12px", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-                <div style={{ fontSize: "14.5px", fontWeight: 600, color: T.text }}>Interview {iv.interview_number}</div>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <button onClick={() => playVideo(iv)} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "9px 16px", borderRadius: "8px", border: "none", background: T.pine, color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: sans }}>
-                    <Icon name="video" size={14} /> Play
-                  </button>
-                  {canDownload && (
-                    <button onClick={() => downloadVideo(iv)} style={{ padding: "9px 16px", borderRadius: "8px", border: `1.5px solid ${T.line}`, background: T.inputBg, color: T.text, fontSize: "13px", cursor: "pointer", fontFamily: sans }}>Download</button>
-                  )}
+            {withVideo.map((iv) => {
+              const parts = videoParts(iv);
+              return (
+                <div key={iv.id} style={{ background: T.card, border: `1.5px solid ${T.line}`, borderRadius: "12px", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                  <div>
+                    <div style={{ fontSize: "14.5px", fontWeight: 600, color: T.text }}>Interview {iv.interview_number}</div>
+                    {parts.length > 1 && <div style={{ fontSize: "12px", color: T.faint, marginTop: "2px" }}>Recorded in {parts.length} parts — the recording was briefly interrupted</div>}
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    {parts.map((p) => (
+                      <span key={p.part} style={{ display: "flex", gap: "8px" }}>
+                        <button onClick={() => playVideo(iv, p)} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "9px 16px", borderRadius: "8px", border: "none", background: T.pine, color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: sans }}>
+                          <Icon name="video" size={14} /> {parts.length > 1 ? "Play part " + p.part : "Play"}
+                        </button>
+                        {canDownload && (
+                          <button onClick={() => downloadVideo(iv, p)} style={{ padding: "9px 16px", borderRadius: "8px", border: `1.5px solid ${T.line}`, background: T.inputBg, color: T.text, fontSize: "13px", cursor: "pointer", fontFamily: sans }}>{parts.length > 1 ? "Download part " + p.part : "Download"}</button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

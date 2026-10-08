@@ -200,7 +200,7 @@ const [waiting, setWaiting] = useState(0);
           ))}
         </div>
 <div style={{ display: "flex", gap: "8px", padding: "12px 24px", borderBottom: "1px solid #1A1A18", overflowX: "auto" }}>
-        {[["/admin/upload", "Upload & process"], ["/admin/clients", "Clients"], ["/admin/interviewers", "Interviewers"], ["/admin/chatlogs", "Chat logs"], ["/admin/inbox", waiting > 0 ? `Inbox (${waiting})` : "Inbox"], ["/admin/updates", "Updates"], ["/admin/content", "Login content"]].map(([href, lbl]) => (
+        {[["/admin/upload", "Upload & process"], ["/admin/decks", "Slide decks"], ["/admin/tablet", "Interviews & voiding"], ["/admin/clients", "Clients"], ["/admin/interviewers", "Interviewers"], ["/admin/chatlogs", "Chat logs"], ["/admin/inbox", waiting > 0 ? `Inbox (${waiting})` : "Inbox"], ["/admin/updates", "Updates"], ["/admin/content", "Login content"]].map(([href, lbl]) => (
           <a key={href} href={href} style={{ padding: "8px 14px", borderRadius: "8px", border: lbl.startsWith("Inbox (") ? "1px solid #4A3A20" : "1px solid #2A2A28", background: lbl.startsWith("Inbox (") ? "#2A2520" : "#1A1A18", color: lbl.startsWith("Inbox (") ? "#D4A017" : "#A8A8A4", fontSize: "12.5px", fontWeight: "500", textDecoration: "none", whiteSpace: "nowrap" }}>{lbl}</a>
         ))}
       </div>
@@ -245,7 +245,10 @@ const [waiting, setWaiting] = useState(0);
                         <div style={{ height: "4px", background: "#2A2A28", borderRadius: "2px", overflow: "hidden", marginBottom: "10px" }}>
                           <div style={{ height: "100%", width: `${progress}%`, background: c.interviews_remaining < 10 ? "#E06050" : "#4A8A6A", borderRadius: "2px" }} />
                         </div>
-                        <button onClick={() => deleteContract(c.id)} style={{ fontSize: "12px", color: "#E06050", background: "none", border: "none", cursor: "pointer", fontFamily: F, padding: "4px 0" }}>Delete contract</button>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                          <a href={"/admin/decks/" + c.id} style={{ fontSize: "12px", color: "#D4A017", fontWeight: "600", textDecoration: "none", padding: "4px 0" }}>{c.deck && Array.isArray(c.deck.slides) && c.deck.slides.length > 0 ? "Edit slide deck (v" + c.deck_version + ")" : "+ Add a slide deck"}</a>
+                          <button onClick={() => deleteContract(c.id)} style={{ fontSize: "12px", color: "#E06050", background: "none", border: "none", cursor: "pointer", fontFamily: F, padding: "4px 0" }}>Delete contract</button>
+                        </div>
                       </div>
                     );
                   })}

@@ -1,9 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
+import { tagInterview } from "../../../lib/tagslides";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+// ============================================================
+// InsightRide — POST /api/summarize  { interviewId }   ("Run AI")
+// File location in repo: src/app/api/summarize/route.js
+//
+// Haiku forced-tool analysis -> structured_data (summary, speaker_mapping,
+// quality, sentiment, themes, quotes, extracted_fields, extraction_warnings),
+// reverse-geocoding, status -> summarized.
+// Tablet interviews (Step 9D): tablet deck questions are NOT sent to the AI
+// (they are answered on the tablet and filled in by slide tagging), the deck's
+// questions serve as the script, and slide tagging runs automatically at the end.
+// ============================================================
+
+export const maxDuration = 60;
 
 const SENTIMENT_VALUES = ["very_negative", "negative", "neutral", "positive", "very_positive"];
 
@@ -16,6 +26,24 @@ function formatTranscript(interview) {
     }).join("\n");
   }
   return interview.transcript || "";
+}
+
+function L(field, lang) {
+  if (!field) return "";
+  if (typeof field === "string") return field;
+  return field[lang] || field.en || Object.values(field)[0] || "";
+}
+
+// The tablet deck as an interview script (what was shown/asked, in order)
+function deckScript(deck) {
+  const lang = deck.default_language || "en";
+  const lines = [];
+  (deck.slides || []).forEach((s, i) => {
+    const q = s.interactions && s.interactions[0];
+    const what = q ? `${q.type === "voice" ? "asked out loud" : "answered on the tablet"} — ${L(q.prompt, lang)}` : s.text ? `shown — ${L(s.text.heading, lang)}` : `shown — ${s.media ? s.media.type : "slide"}`;
+    lines.push(`${i + 1}. (slide "${s.title || s.id}") ${what}`);
+  });
+  return lines.join("\n");
 }
 
 async function reverseGeocode(lat, lng) {
@@ -37,25 +65,35 @@ async function reverseGeocode(lat, lng) {
 
 export async function POST(request) {
   try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    );
     const { interviewId } = await request.json();
     if (!interviewId) return Response.json({ error: "Missing interviewId" }, { status: 400 });
 
     const { data: interview, error: e1 } = await supabase
       .from("completed_interviews")
-      .select("id, contract_id, transcript, diarized_transcript, survey_responses, demographics, latitude, longitude, postcode")
+      .select("id, contract_id, transcript, diarized_transcript, survey_responses, demographics, latitude, longitude, postcode, slide_timeline")
       .eq("id", interviewId).single();
     if (e1 || !interview) throw new Error("Interview not found");
     if (!interview.transcript && !(interview.diarized_transcript || []).length) throw new Error("No transcript to analyse yet");
 
     const { data: contract } = await supabase
-      .from("contracts").select("guide, extraction_schema").eq("id", interview.contract_id).single();
+      .from("contracts").select("guide, extraction_schema, deck").eq("id", interview.contract_id).single();
 
-    const questions = (contract?.guide?.questions || []).map((q, i) => `${i + 1}. (${q.type}) ${q.question}`).join("\n") || "No script provided.";
-    const extractionSchema = contract?.extraction_schema || [];
+    const deck = contract?.deck && Array.isArray(contract.deck.slides) && contract.deck.slides.length ? contract.deck : null;
+    const isTablet = Array.isArray(interview.slide_timeline) && interview.slide_timeline.length > 0;
+    const guideQuestions = (contract?.guide?.questions || []).map((q, i) => `${i + 1}. (${q.type}) ${q.question}`).join("\n");
+    const questions = (isTablet && deck ? deckScript(deck) : guideQuestions) || "No script provided.";
+    // Tablet deck questions are answered on the tablet and filled in by slide tagging — never guessed from the audio
+    const extractionSchema = (contract?.extraction_schema || []).filter((f) => f && f.source !== "deck");
     const transcriptText = formatTranscript(interview);
+    const resumed = (interview.diarized_transcript || []).some((u) => u && Number(u.part) > 1);
 
     const system = `You analyse a single in-person market-research interview and return your analysis by calling the save_interview_analysis tool. Follow these rules exactly:
-- Identify which diarized speaker is the INTERVIEWER (the one asking the scripted questions) and which is the INTERVIEWEE; report it in speaker_mapping. Quotes should be the interviewee's words.
+- Identify which diarized speaker is the INTERVIEWER (the one asking the scripted questions) and which is the INTERVIEWEE; report it in speaker_mapping. Quotes should be the interviewee's words.${resumed ? `
+- This recording was interrupted and resumed. Speaker labels ending in 2 (e.g. A2, B2) come from the second part of the same conversation and may not match the part-one letters. Report speaker_mapping using the part-one labels (e.g. A, B).` : ""}
 - summary: 2-4 plain-language sentences.
 - quality: an overall score 1-10 plus sub-scores engagement, consistency, specificity, sentiment_diversity (each 1-10). Set flagged_for_exclusion true only when score is below 4, with a flag_reason.
 - sentiment.overall must be one of: ${SENTIMENT_VALUES.join(", ")}. by_topic is optional and uses the same five values.
@@ -67,7 +105,8 @@ export async function POST(request) {
    - boolean: true/false/null. numeric/scale: a number or null. free_text: a short string. sentiment: one of the five sentiment values.
    - When mentioned, include a short verbatim evidence_quote and its timestamp. confidence is "high", "medium", or "low" - use "low" instead of guessing.
 - extraction_warnings: note anything ambiguous, or a spoken answer that matched none of a field's options.
-- Do NOT compute statistics, counts, or percentages. Describe only THIS interview. The survey answers and demographics are context only - do not re-extract them.`;
+- Do NOT compute statistics, counts, or percentages. Describe only THIS interview. The survey answers and demographics are context only - do not re-extract them.${isTablet ? `
+- This interview used a tablet slide deck (the script below). Answers tapped or typed on the tablet are already recorded; use them only as context.` : ""}`;
 
     const userContent = `INTERVIEW SCRIPT:
 ${questions}
@@ -133,7 +172,19 @@ Now call save_interview_analysis with your analysis.`;
       .eq("id", interviewId);
     if (upErr) throw upErr;
 
-    return Response.json({ ok: true });
+    // Tablet interviews: tag the slides now, so statistics are complete straight away.
+    // A tagging problem never fails Run AI — the admin can re-run "Tag slides".
+    let tagging = null;
+    if (isTablet && deck) {
+      try {
+        const t = await tagInterview(supabase, interviewId);
+        tagging = { ok: true, fields: t.fields, voice_answers: t.voice_answers, warnings: t.warnings };
+      } catch (e) {
+        tagging = { ok: false, error: e.message || String(e) };
+      }
+    }
+
+    return Response.json({ ok: true, tagging });
   } catch (e) {
     return Response.json({ error: e.message || String(e) }, { status: 500 });
   }

@@ -5,10 +5,10 @@ import { useState, useEffect, useRef } from "react";
 // InsightRide — shared deck module
 // File location in repo: src/lib/deck.js
 //
-// Used by the interviewee tablet (/interview/[contractId]) and, from
-// the presenter-mode step on, by the interviewer phone (mirror card).
-// Holds: design tokens, translatable interface strings, deck helpers,
-// and every component that renders a slide.
+// Used by: the tablet kiosk (/interview), the standalone preview
+// (/interview/[contractId]) and the interviewer phone (/interviewer/tablet).
+// Holds: design tokens, translatable interface strings, deck + session
+// helpers, and every component that renders a slide or a tablet screen.
 // ============================================================
 
 // The demo contract seeded by the Step 2 migration. /interview/demo maps to it.
@@ -33,7 +33,7 @@ export const tokens = {
   amberBorder: "#E8D8A8",
   amberText: "#8B7030",
 };
-const { serif, sans, accent, accentLight, cardBg, textPrimary, textSecondary, border, amberBg, amberBorder, amberText } = tokens;
+const { serif, sans, accent, accentLight, warmBg, cardBg, textPrimary, textSecondary, border, amberBg, amberBorder, amberText } = tokens;
 
 export const FONT_LINK =
   "https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap";
@@ -68,6 +68,16 @@ export const UI = {
     step_of: (i, n, label) => "Step " + i + " of " + n + " — " + label,
     continue: "Continue",
     back: "Back",
+
+    // pairing / waiting (tablet)
+    pair_title: "Enter this code in the interviewer app",
+    pair_note: "The tablet is ready to be paired. Ask your interviewer to open the InsightRide app on their phone and type the code above.",
+    pair_new: "Get a new code",
+    paired_title: (name) => "Paired with " + name,
+    paired_note: "Waiting for your interviewer to start an interview.",
+    loading_deck: "Preparing the interview...",
+    connection_ok: "Connected",
+    connection_lost: "Reconnecting...",
 
     // welcome
     welcome_title: "You are invited to share your perspective",
@@ -139,6 +149,7 @@ export const UI = {
     err_not_found: "This contract could not be found. Check the link and try again.",
     err_no_deck: "This contract does not have a slide deck yet. Ask the admin to add one before running interviews.",
     err_offline: "Could not reach the server. Check the tablet's connection and try again.",
+    err_session: "Could not start a tablet session. Check the connection and try again.",
     retry: "Try again",
   },
 };
@@ -146,9 +157,9 @@ export function t(lang) {
   return UI[lang] || UI.en;
 }
 
-// ── Demographics: canonical stored VALUES. These match the admin/interviewer
-//    lists so matching and statistics line up across the platform. Translate
-//    the displayed labels later without ever changing the stored values. ──
+export const EMPTY_CHECKS = { understood: false, recording: false, dataUse: false, voluntary: false, withdraw: false };
+
+// ── Demographics: canonical stored VALUES (match the admin/interviewer lists). ──
 export const DEMO_FIELDS = ["ageRange", "gender", "ethnicity", "profession"];
 export const DEMO_OPTIONS = {
   ageRange: ["18-24", "25-34", "35-44", "45-54", "55-64", "65+", "Prefer not to say"],
@@ -184,6 +195,43 @@ export function getConsentConfig(contract, deck, lang) {
   };
 }
 
+// ── Session / pairing helpers ──
+export function genPairingCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I
+  let s = "";
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+export function getDeviceId() {
+  try {
+    let id = localStorage.getItem("ir_device_id");
+    if (!id) {
+      id = "tab-" + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem("ir_device_id", id);
+    }
+    return id;
+  } catch (e) {
+    return "tab-unknown";
+  }
+}
+// Answers minus anything marked private (what the interviewer phone is allowed to see live)
+export function publicAnswers(deck, answers) {
+  const priv = new Set();
+  ((deck && deck.slides) || []).forEach((s) => (s.interactions || []).forEach((q) => q.private && priv.add(q.id)));
+  const out = {};
+  Object.keys(answers || {}).forEach((k) => {
+    if (!priv.has(k)) out[k] = answers[k];
+  });
+  return out;
+}
+export function slideIndexById(deck, id) {
+  const i = ((deck && deck.slides) || []).findIndex((s) => s.id === id);
+  return i < 0 ? 0 : i;
+}
+export function slideOf(slide) {
+  return (slide && slide.interactions && slide.interactions[0]) || null;
+}
+
 // ── Helpers ──
 
 // Pick the right language from a { en: "...", de: "..." } field.
@@ -207,6 +255,23 @@ export function isAnswered(q, a) {
   if (q.type === "scale") return typeof a.value === "number";
   if (q.type === "text") return (a.text || "").trim().length > 0;
   return true;
+}
+
+// Human-readable version of an answer (used by the interviewer phone)
+export function summarizeAnswer(q, a, lang) {
+  if (!q || !a) return null;
+  const u = t(lang);
+  const label = (id) => {
+    if (id === "other") return u.other + (a.other_text ? ": " + a.other_text : "");
+    if (id === "prefer_not") return u.prefer_not;
+    const o = (q.options || []).find((x) => x.id === id);
+    return o ? L(o.label, lang) : id;
+  };
+  if (q.type === "single_choice") return a.option ? label(a.option) : null;
+  if (q.type === "multi_select") return (a.options || []).length ? a.options.map(label).join(", ") : null;
+  if (q.type === "scale") return typeof a.value === "number" ? String(a.value) : null;
+  if (q.type === "text") return (a.text || "").trim() ? a.text : null;
+  return null;
 }
 
 export function useLandscape() {
@@ -261,7 +326,7 @@ export const inputStyle = {
   outline: "none",
 };
 
-// ── Components ──
+// ── Small components ──
 
 export function ProgressBar({ current, total }) {
   const pct = total > 0 ? (current / total) * 100 : 0;
@@ -400,21 +465,7 @@ export function ScaleInput({ scale, lang, value, onChange }) {
 
 export function PrivateBadge({ text }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "10px 14px",
-        borderRadius: 10,
-        background: amberBg,
-        border: "1.5px solid " + amberBorder,
-        marginBottom: 16,
-        fontSize: 13,
-        color: amberText,
-        fontWeight: 500,
-      }}
-    >
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, background: amberBg, border: "1.5px solid " + amberBorder, marginBottom: 16, fontSize: 13, color: amberText, fontWeight: 500 }}>
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M12 7H4V5a4 4 0 118 0v2zm1 0V5a5 5 0 00-10 0v2a1 1 0 00-1 1v5a1 1 0 001 1h10a1 1 0 001-1V8a1 1 0 00-1-1z" fill={amberText} />
       </svg>
@@ -425,18 +476,7 @@ export function PrivateBadge({ text }) {
 
 export function LockedNote({ text }) {
   return (
-    <div
-      style={{
-        padding: "10px 14px",
-        borderRadius: 10,
-        background: amberBg,
-        border: "1.5px solid " + amberBorder,
-        marginBottom: 14,
-        fontSize: 14,
-        color: amberText,
-        fontWeight: 500,
-      }}
-    >
+    <div style={{ padding: "10px 14px", borderRadius: 10, background: amberBg, border: "1.5px solid " + amberBorder, marginBottom: 14, fontSize: 14, color: amberText, fontWeight: 500 }}>
       {text}
     </div>
   );
@@ -445,31 +485,8 @@ export function LockedNote({ text }) {
 export function VoiceCue({ text, note }) {
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "16px 18px",
-          borderRadius: 12,
-          background: accentLight,
-          border: "1.5px solid " + accent,
-          color: accent,
-          fontSize: 16,
-          fontWeight: 500,
-          lineHeight: 1.4,
-        }}
-      >
-        <span
-          style={{
-            width: 14,
-            height: 14,
-            borderRadius: "50%",
-            background: "#D0433B",
-            flexShrink: 0,
-            animation: "irPulse 1.4s ease-in-out infinite",
-          }}
-        />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 18px", borderRadius: 12, background: accentLight, border: "1.5px solid " + accent, color: accent, fontSize: 16, fontWeight: 500, lineHeight: 1.4 }}>
+        <span style={{ width: 14, height: 14, borderRadius: "50%", background: "#D0433B", flexShrink: 0, animation: "irPulse 1.4s ease-in-out infinite" }} />
         {text}
       </div>
       <div style={{ fontSize: 13, color: textSecondary, marginTop: 10 }}>{note}</div>
@@ -477,7 +494,12 @@ export function VoiceCue({ text, note }) {
   );
 }
 
-export function VideoBlock({ media, lang, landscape, requireFull, allowReplay, watched, onWatched }) {
+// Full-screen black layer. On OLED this is a true screen-off; on LCD it hides the UI.
+export function BlankOverlay() {
+  return <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "#000", zIndex: 50 }} />;
+}
+
+export function VideoBlock({ media, lang, landscape, requireFull, allowReplay, watched, onWatched, command }) {
   const ref = useRef(null);
   const [playing, setPlaying] = useState(false);
   const [started, setStarted] = useState(false);
@@ -495,6 +517,17 @@ export function VideoBlock({ media, lang, landscape, requireFull, allowReplay, w
     v.currentTime = 0;
     safePlay();
   }
+
+  // Remote commands from the interviewer phone: { action: play|pause|replay, nonce }
+  const nonce = command ? command.nonce : 0;
+  useEffect(() => {
+    if (!command || !nonce) return;
+    if (command.action === "play") safePlay();
+    else if (command.action === "pause") {
+      const v = ref.current;
+      if (v) v.pause();
+    } else if (command.action === "replay") playFromStart();
+  }, [nonce]);
 
   const showOverlay = requireFull && !playing;
   let overlayButton = null;
@@ -525,36 +558,9 @@ export function VideoBlock({ media, lang, landscape, requireFull, allowReplay, w
           }}
         />
         {showOverlay && (
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 12,
-              background: "rgba(0,0,0,0.45)",
-            }}
-          >
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, background: "rgba(0,0,0,0.45)" }}>
             {overlayButton && (
-              <button
-                onClick={overlayButton.action}
-                style={{
-                  padding: "16px 40px",
-                  borderRadius: 12,
-                  border: "none",
-                  background: accent,
-                  color: "#fff",
-                  fontSize: 18,
-                  fontWeight: 600,
-                  fontFamily: sans,
-                  cursor: "pointer",
-                }}
-              >
+              <button onClick={overlayButton.action} style={{ padding: "16px 40px", borderRadius: 12, border: "none", background: accent, color: "#fff", fontSize: 18, fontWeight: 600, fontFamily: sans, cursor: "pointer" }}>
                 {overlayButton.label}
               </button>
             )}
@@ -567,40 +573,24 @@ export function VideoBlock({ media, lang, landscape, requireFull, allowReplay, w
   );
 }
 
-export function MediaBlock({ media, lang, landscape, requireFull, allowReplay, watched, onWatched }) {
+export function MediaBlock({ media, lang, landscape, requireFull, allowReplay, watched, onWatched, command, mirror }) {
+  // Mirror mode (interviewer phone): show a lightweight placeholder instead of loading the media
+  if (mirror) {
+    return (
+      <div style={{ marginBottom: 20, padding: "28px 16px", borderRadius: 14, border: "2px dashed " + border, background: "#F4F1EA", color: textSecondary, fontSize: 15, textAlign: "center", fontFamily: sans }}>
+        {media.type === "video" ? "Video" : "Image"}: {L(media.alt, lang) || media.url}
+      </div>
+    );
+  }
   if (media.type === "image") {
     return (
-      <div
-        style={{
-          marginBottom: 20,
-          background: cardBg,
-          border: "1.5px solid " + border,
-          borderRadius: 14,
-          overflow: "hidden",
-          display: "flex",
-          justifyContent: "center",
-        }}
-      >
-        <img
-          src={media.url}
-          alt={L(media.alt, lang)}
-          style={{ maxWidth: "100%", maxHeight: landscape ? "62vh" : "42vh", objectFit: "contain", display: "block" }}
-        />
+      <div style={{ marginBottom: 20, background: cardBg, border: "1.5px solid " + border, borderRadius: 14, overflow: "hidden", display: "flex", justifyContent: "center" }}>
+        <img src={media.url} alt={L(media.alt, lang)} style={{ maxWidth: "100%", maxHeight: landscape ? "62vh" : "42vh", objectFit: "contain", display: "block" }} />
       </div>
     );
   }
   if (media.type === "video") {
-    return (
-      <VideoBlock
-        media={media}
-        lang={lang}
-        landscape={landscape}
-        requireFull={requireFull}
-        allowReplay={allowReplay}
-        watched={watched}
-        onWatched={onWatched}
-      />
-    );
+    return <VideoBlock media={media} lang={lang} landscape={landscape} requireFull={requireFull} allowReplay={allowReplay} watched={watched} onWatched={onWatched} command={command} />;
   }
   return null;
 }
@@ -610,11 +600,7 @@ export function TextBlock({ text, lang, big }) {
   const body = L(text.body, lang);
   return (
     <div style={big ? { maxWidth: 680, margin: "36px auto 20px" } : { marginBottom: 20 }}>
-      {heading && (
-        <h2 style={{ fontFamily: serif, fontSize: big ? 32 : 22, fontWeight: 700, lineHeight: 1.3, margin: "0 0 14px", color: textPrimary }}>
-          {heading}
-        </h2>
-      )}
+      {heading && <h2 style={{ fontFamily: serif, fontSize: big ? 32 : 22, fontWeight: 700, lineHeight: 1.3, margin: "0 0 14px", color: textPrimary }}>{heading}</h2>}
       {body && <Rich text={body} style={{ fontSize: big ? 19 : 16, lineHeight: 1.65, color: big ? textPrimary : textSecondary }} />}
     </div>
   );
@@ -648,15 +634,7 @@ export function ChoiceList({ q, lang, value, multi, onChange }) {
       {opts.map((o) => (
         <OptionButton key={o.id} label={L(o.label, lang)} selected={selected(o.id)} multi={multi} onClick={() => tap(o.id)} />
       ))}
-      {selected("other") && (
-        <input
-          type="text"
-          value={value.other_text || ""}
-          onChange={(e) => onChange({ ...value, other_text: e.target.value })}
-          placeholder={u.specify}
-          style={inputStyle}
-        />
-      )}
+      {selected("other") && <input type="text" value={value.other_text || ""} onChange={(e) => onChange({ ...value, other_text: e.target.value })} placeholder={u.specify} style={inputStyle} />}
     </div>
   );
 }
@@ -668,29 +646,15 @@ export function InteractionBlock({ q, lang, answer, onAnswer, locked }) {
   return (
     <div>
       {q.private && <PrivateBadge text={u.private} />}
-      <h2 style={{ fontFamily: serif, fontSize: 23, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px", color: textPrimary }}>
-        {L(q.prompt, lang)}
-      </h2>
-      {helper ? (
-        <div style={{ fontSize: 14, color: textSecondary, marginBottom: 16, lineHeight: 1.5 }}>{helper}</div>
-      ) : (
-        <div style={{ height: 12 }} />
-      )}
+      <h2 style={{ fontFamily: serif, fontSize: 23, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px", color: textPrimary }}>{L(q.prompt, lang)}</h2>
+      {helper ? <div style={{ fontSize: 14, color: textSecondary, marginBottom: 16, lineHeight: 1.5 }}>{helper}</div> : <div style={{ height: 12 }} />}
       {locked && <LockedNote text={u.locked} />}
       <div style={{ opacity: locked ? 0.45 : 1, pointerEvents: locked ? "none" : "auto" }}>
         {q.type === "single_choice" && <ChoiceList q={q} lang={lang} value={a} multi={false} onChange={(v) => onAnswer(q.id, v)} />}
         {q.type === "multi_select" && <ChoiceList q={q} lang={lang} value={a} multi onChange={(v) => onAnswer(q.id, v)} />}
-        {q.type === "scale" && (
-          <ScaleInput scale={q.scale || {}} lang={lang} value={a.value} onChange={(v) => onAnswer(q.id, { value: v })} />
-        )}
+        {q.type === "scale" && <ScaleInput scale={q.scale || {}} lang={lang} value={a.value} onChange={(v) => onAnswer(q.id, { value: v })} />}
         {q.type === "text" && (
-          <textarea
-            value={a.text || ""}
-            onChange={(e) => onAnswer(q.id, { text: e.target.value })}
-            placeholder={L(q.placeholder, lang) || u.type_here}
-            rows={5}
-            style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }}
-          />
+          <textarea value={a.text || ""} onChange={(e) => onAnswer(q.id, { text: e.target.value })} placeholder={L(q.placeholder, lang) || u.type_here} rows={5} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }} />
         )}
         {q.type === "voice" && <VoiceCue text={u.voice_cue} note={u.voice_note} />}
       </div>
@@ -698,19 +662,12 @@ export function InteractionBlock({ q, lang, answer, onAnswer, locked }) {
   );
 }
 
-export function SlideView({ slide, q, lang, landscape, answer, onAnswer, locked, watched, onWatched }) {
+export function SlideView({ slide, q, lang, landscape, answer, onAnswer, locked, watched, onWatched, mediaCommand, mirror }) {
   const st = slide.settings || {};
   const split = slide.layout === "split" && landscape && slide.media;
+  const cmd = mediaCommand && mediaCommand.slide_id === slide.id ? mediaCommand : null;
   const mediaEl = slide.media ? (
-    <MediaBlock
-      media={slide.media}
-      lang={lang}
-      landscape={landscape}
-      requireFull={!!st.require_full_playback}
-      allowReplay={st.allow_replay !== false}
-      watched={watched}
-      onWatched={onWatched}
-    />
+    <MediaBlock media={slide.media} lang={lang} landscape={landscape} requireFull={!!st.require_full_playback} allowReplay={st.allow_replay !== false} watched={watched} onWatched={onWatched} command={cmd} mirror={mirror} />
   ) : null;
   const textEl = slide.text ? <TextBlock text={slide.text} lang={lang} big={!slide.media && !q} /> : null;
   const qEl = q ? <InteractionBlock q={q} lang={lang} answer={answer} onAnswer={onAnswer} locked={locked} /> : null;
@@ -736,10 +693,34 @@ export function SlideView({ slide, q, lang, landscape, answer, onAnswer, locked,
   );
 }
 
+// ── Tablet screens (status / welcome / consent / demographics / thank-you) ──
+
+export function Centered({ children }) {
+  return (
+    <div style={{ minHeight: "80vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", textAlign: "center" }}>
+      {children}
+    </div>
+  );
+}
+
+export function StatusScreen({ message, onRetry, retryLabel, children }) {
+  return (
+    <Centered>
+      <div style={{ fontSize: 17, color: textSecondary, lineHeight: 1.6, maxWidth: 420 }}>{message}</div>
+      {children}
+      {onRetry && (
+        <button onClick={onRetry} style={{ marginTop: 24, padding: "14px 28px", borderRadius: 10, border: "none", background: accent, color: "#fff", fontSize: 15, fontWeight: 600, fontFamily: sans, cursor: "pointer" }}>
+          {retryLabel}
+        </button>
+      )}
+    </Centered>
+  );
+}
+
 export function ThankYou({ contract, lang, retentionDays }) {
   const u = t(lang);
   return (
-    <div style={{ minHeight: "80vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", textAlign: "center" }}>
+    <Centered>
       <div style={{ width: 72, height: 72, borderRadius: "50%", background: accentLight, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 24 }}>
         <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
           <path d="M10 18L16 24L26 12" stroke={accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
@@ -752,21 +733,159 @@ export function ThankYou({ contract, lang, retentionDays }) {
         <div style={{ fontSize: 36, fontWeight: 700, color: accent }}>${contract.interviewee_incentive}</div>
         <div style={{ fontSize: 13, color: textSecondary, marginTop: 8, lineHeight: 1.5 }}>{u.thanks_pay}</div>
       </div>
-      <div
-        style={{
-          background: amberBg,
-          border: "1.5px solid " + amberBorder,
-          borderRadius: 10,
-          padding: "14px 16px",
-          width: "100%",
-          maxWidth: 340,
-          fontSize: 13,
-          color: "#6B5820",
-          lineHeight: 1.5,
-          textAlign: "left",
-        }}
-      >
+      <div style={{ background: amberBg, border: "1.5px solid " + amberBorder, borderRadius: 10, padding: "14px 16px", width: "100%", maxWidth: 340, fontSize: 13, color: "#6B5820", lineHeight: 1.5, textAlign: "left" }}>
         <strong>{u.rights_h}</strong> {u.rights_body(retentionDays)}
+      </div>
+    </Centered>
+  );
+}
+
+export function WelcomeScreen({ contract, u, onContinue }) {
+  return (
+    <Centered>
+      <div style={{ width: 64, height: 64, borderRadius: 16, background: accentLight, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 24 }}>
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <path d="M16 4C9.4 4 4 9.4 4 16s5.4 12 12 12 12-5.4 12-12S22.6 4 16 4zm0 22c-5.5 0-10-4.5-10-10S10.5 6 16 6s10 4.5 10 10-4.5 10-10 10z" fill={accent} />
+          <path d="M16 10a2 2 0 100 4 2 2 0 000-4zM16 16c-1.1 0-2 .9-2 2v4a2 2 0 104 0v-4c0-1.1-.9-2-2-2z" fill={accent} />
+        </svg>
+      </div>
+      <h1 style={{ fontFamily: serif, fontSize: 28, fontWeight: 700, color: textPrimary, margin: "0 0 12px", lineHeight: 1.3, maxWidth: 480 }}>{u.welcome_title}</h1>
+      <p style={{ fontSize: 16, color: textSecondary, lineHeight: 1.6, maxWidth: 380, margin: "0 0 8px" }}>{u.welcome_body(contract.estimated_minutes, (contract.topic || "").toLowerCase())}</p>
+      <div style={{ background: cardBg, border: "1.5px solid " + border, borderRadius: 14, padding: 20, margin: "20px 0", width: "100%", maxWidth: 360 }}>
+        <div style={{ fontSize: 32, fontWeight: 700, color: accent, marginBottom: 4 }}>${contract.interviewee_incentive}</div>
+        <div style={{ fontSize: 14, color: textSecondary }}>{u.welcome_comp}</div>
+      </div>
+      <p style={{ fontSize: 14, color: textSecondary, lineHeight: 1.6, maxWidth: 380, margin: "0 0 32px" }}>{u.welcome_note}</p>
+      <button onClick={onContinue} style={{ padding: "16px 48px", borderRadius: 12, border: "none", background: accent, color: "#fff", fontSize: 17, fontWeight: 600, cursor: "pointer", fontFamily: sans, width: "100%", maxWidth: 360 }}>
+        {u.continue}
+      </button>
+    </Centered>
+  );
+}
+
+function SectionTitle({ children }) {
+  return <div style={{ fontSize: 13, fontWeight: 600, color: accent, marginBottom: 6 }}>{children}</div>;
+}
+function SectionText({ children }) {
+  return <p style={{ fontSize: 14, color: textPrimary, lineHeight: 1.6, margin: 0 }}>{children}</p>;
+}
+
+export function ConsentScreen({ contract, u, cfg, demoFields, checks, setChecks, signature, setSignature, onContinue, current, total, bottomOffset }) {
+  const off = bottomOffset || 0;
+  const allConsented = Object.values(checks).every(Boolean) && signature.trim().length > 1;
+  const collect = [
+    cfg.video_recording ? u.consent_collect_video : null,
+    cfg.audio_recording ? u.consent_collect_audio : null,
+    cfg.location_data ? u.consent_collect_location : null,
+    u.consent_collect_responses,
+    demoFields.length > 0 ? u.consent_collect_demo(demoFields.map((f) => u.demo_labels[f].toLowerCase()).join(", ")) : null,
+    u.consent_collect_noid,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const items = [
+    ["understood", u.consent_ack_read],
+    ["recording", u.consent_ack_recording(cfg.video_recording ? u.video_and_audio : u.audio_only)],
+    ["dataUse", u.consent_ack_data(cfg.client_name)],
+    ["voluntary", u.consent_ack_voluntary],
+    ["withdraw", u.consent_ack_withdraw(cfg.data_retention_days)],
+  ];
+
+  return (
+    <div style={{ paddingBottom: 120 + off }}>
+      <div style={{ padding: "16px 24px 0", maxWidth: 720, margin: "0 auto" }}>
+        <ProgressBar current={current} total={total} />
+        <div style={{ fontSize: 12, color: textSecondary, marginTop: 8, fontWeight: 500 }}>{u.step_of(current, total, u.consent_step)}</div>
+      </div>
+      <div style={{ padding: "20px 24px", maxWidth: 720, margin: "0 auto" }}>
+        <h2 style={{ fontFamily: serif, fontSize: 24, fontWeight: 700, color: textPrimary, margin: "0 0 6px" }}>{u.consent_title}</h2>
+        <p style={{ fontSize: 14, color: textSecondary, lineHeight: 1.6, margin: "0 0 20px" }}>{u.consent_intro}</p>
+
+        <div style={{ background: cardBg, border: "1.5px solid " + border, borderRadius: 14, overflow: "hidden", marginBottom: 20 }}>
+          <div style={{ padding: 16, borderBottom: "1px solid " + border }}>
+            <SectionTitle>{u.consent_purpose_h}</SectionTitle>
+            <SectionText>{u.consent_purpose(cfg.client_name)}</SectionText>
+          </div>
+          <div style={{ padding: 16, borderBottom: "1px solid " + border }}>
+            <SectionTitle>{u.consent_collect_h}</SectionTitle>
+            <SectionText>{collect}</SectionText>
+          </div>
+          <div style={{ padding: 16, borderBottom: "1px solid " + border }}>
+            <SectionTitle>{u.consent_use_h}</SectionTitle>
+            <SectionText>
+              {u.consent_use_aggregate} {cfg.third_party_sharing ? u.consent_use_shared(cfg.client_name) : u.consent_use_not_shared} {u.consent_use_retention(cfg.data_retention_days)}
+            </SectionText>
+          </div>
+          <div style={{ padding: 16 }}>
+            <SectionTitle>{u.consent_rights_h}</SectionTitle>
+            <SectionText>{u.consent_rights(contract.interviewee_incentive, cfg.data_retention_days)}</SectionText>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+          {items.map(([key, label]) => (
+            <CheckRow key={key} label={label} checked={checks[key]} onClick={() => setChecks((c) => ({ ...c, [key]: !c[key] }))} />
+          ))}
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: textSecondary, display: "block", marginBottom: 8 }}>{u.consent_sig_label}</label>
+          <input type="text" value={signature} onChange={(e) => setSignature(e.target.value)} placeholder={u.consent_sig_placeholder} style={inputStyle} />
+          <div style={{ fontSize: 12, color: textSecondary, marginTop: 6, lineHeight: 1.5 }}>{u.consent_sig_note}</div>
+        </div>
+      </div>
+
+      <div style={{ position: "fixed", bottom: off, left: 0, right: 0, padding: "16px 24px", background: "linear-gradient(transparent, " + warmBg + " 30%)", paddingTop: 40 }}>
+        <div style={{ maxWidth: 720, margin: "0 auto" }}>
+          <button
+            onClick={onContinue}
+            disabled={!allConsented}
+            style={{ width: "100%", padding: 16, borderRadius: 12, border: "none", background: allConsented ? accent : "#C8C4BC", color: allConsented ? "#fff" : "#888", fontSize: 16, fontWeight: 600, cursor: allConsented ? "pointer" : "not-allowed", fontFamily: sans }}
+          >
+            {allConsented ? u.consent_cta_ready : u.consent_cta_wait}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function DemographicsScreen({ u, demoFields, demographics, setDemographics, onBack, onContinue, current, total, bottomOffset }) {
+  const off = bottomOffset || 0;
+  const allFilled = demoFields.every((f) => demographics[f]);
+  return (
+    <div style={{ paddingBottom: 120 + off }}>
+      <div style={{ padding: "16px 24px 0", maxWidth: 720, margin: "0 auto" }}>
+        <ProgressBar current={current} total={total} />
+        <div style={{ fontSize: 12, color: textSecondary, marginTop: 8, fontWeight: 500 }}>{u.step_of(current, total, u.demo_step)}</div>
+      </div>
+      <div style={{ padding: "20px 24px", maxWidth: 720, margin: "0 auto" }}>
+        <h2 style={{ fontFamily: serif, fontSize: 24, fontWeight: 700, color: textPrimary, margin: "0 0 6px" }}>{u.demo_title}</h2>
+        <p style={{ fontSize: 14, color: textSecondary, lineHeight: 1.6, margin: "0 0 24px" }}>{u.demo_intro}</p>
+        {demoFields.map((field) => (
+          <div key={field} style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: textPrimary, marginBottom: 10 }}>{u.demo_labels[field]}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {DEMO_OPTIONS[field].map((option) => (
+                <OptionButton key={option} label={option} selected={demographics[field] === option} onClick={() => setDemographics((d) => ({ ...d, [field]: option }))} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ position: "fixed", bottom: off, left: 0, right: 0, padding: "16px 24px", background: "linear-gradient(transparent, " + warmBg + " 30%)", paddingTop: 40 }}>
+        <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", gap: 12 }}>
+          <button onClick={onBack} style={{ padding: "16px 24px", borderRadius: 12, border: "1.5px solid " + border, background: cardBg, color: textPrimary, fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: sans }}>
+            {u.back}
+          </button>
+          <button
+            onClick={onContinue}
+            disabled={!allFilled}
+            style={{ flex: 1, padding: 16, borderRadius: 12, border: "none", background: allFilled ? accent : "#C8C4BC", color: allFilled ? "#fff" : "#888", fontSize: 16, fontWeight: 600, cursor: allFilled ? "pointer" : "not-allowed", fontFamily: sans }}
+          >
+            {u.continue}
+          </button>
+        </div>
       </div>
     </div>
   );
